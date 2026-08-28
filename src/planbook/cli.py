@@ -215,17 +215,27 @@ def cmd_classes_list(args: argparse.Namespace) -> None:
 
 
 def cmd_classes_create(args: argparse.Namespace) -> None:
+    # Validate arguments before touching auth: a typo in --days should be a
+    # usage error, not a demand that you sign in first.
     days = api.parse_days(args.days)
-    result = api.create_class(
-        client_from(args),
-        name=args.name,
-        start_date=args.start,
-        end_date=args.end,
-        days=days,
-        color=args.color,
-        description=args.description or "",
-    )
-    emit({"ok": True, "name": args.name, "days": days, "response": result})
+    client = None if args.dry_run else client_from(args)
+    emit(api.create_class(
+        client, name=args.name, start_date=args.start, end_date=args.end,
+        days=days, color=args.color,
+        description=args.description or "", dry_run=args.dry_run))
+
+
+def cmd_classes_update(args: argparse.Namespace) -> None:
+    days = api.parse_days(args.days)
+    client = None if args.dry_run else client_from(args)
+    emit(api.update_class(
+        client, class_id=args.class_id, name=args.name, start_date=args.start,
+        end_date=args.end, days=days, color=args.color,
+        description=args.description or "", dry_run=args.dry_run))
+
+
+def cmd_classes_get(args: argparse.Namespace) -> None:
+    emit(api.get_class(client_from(args), args.class_id))
 
 
 # --------------------------------------------------------------------------
@@ -462,7 +472,21 @@ def build_parser() -> argparse.ArgumentParser:
                    help="days taught, e.g. MTWRF (R=Thursday, U=Sunday)")
     c.add_argument("--color", default="#7ED321")
     c.add_argument("--description")
+    c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_create)
+    c = s_cls.add_parser("update", help="update a class (replaces its schedule)")
+    c.add_argument("--class-id", dest="class_id", required=True)
+    c.add_argument("--name", required=True)
+    c.add_argument("--start", required=True, metavar="MM/DD/YYYY")
+    c.add_argument("--end", required=True, metavar="MM/DD/YYYY")
+    c.add_argument("--days", default="MTWRF")
+    c.add_argument("--color", default="#7ED321")
+    c.add_argument("--description")
+    c.add_argument("--dry-run", action="store_true")
+    c.set_defaults(func=cmd_classes_update)
+    c = s_cls.add_parser("get", help="fetch one class by id")
+    c.add_argument("class_id")
+    c.set_defaults(func=cmd_classes_get)
 
     # lessons
     p_les = sub.add_parser("lessons", help="read and write lessons")

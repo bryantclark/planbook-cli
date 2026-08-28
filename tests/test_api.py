@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import responses
 
@@ -6,10 +8,11 @@ from planbook.client import API_BASE, PlanbookClient
 from planbook.errors import SchemaDrift, UsageError
 
 
-def class_wire_record():
+def class_wire_record(teach_days=("m", "t", "w", "r", "f")):
+    """A class record in wire format. Teach flags are "Y"/"N" strings."""
     raw = {"cId": 123, "cN": "Biology", "cSd": "08/31/2026", "cEd": "06/06/2027"}
     for prefix in ["m", "t", "w", "r", "f", "s", "u"]:
-        raw[f"{prefix}T"] = f"{prefix}-teach"
+        raw[f"{prefix}T"] = "Y" if prefix in teach_days else "N"
         raw[f"{prefix}St"] = f"{prefix}-start"
         raw[f"{prefix}Et"] = f"{prefix}-end"
     return raw
@@ -32,8 +35,37 @@ def test_normalize_class_maps_fields_and_all_day_schedule():
     assert set(result["schedule"]) == {
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
     }
-    assert result["schedule"]["thursday"] == {"teaches": "r-teach", "start": "r-start", "end": "r-end"}
-    assert result["schedule"]["sunday"] == {"teaches": "u-teach", "start": "u-start", "end": "u-end"}
+    assert result["schedule"]["thursday"] == {"teaches": True, "start": "r-start", "end": "r-end"}
+    assert result["schedule"]["sunday"] == {"teaches": False, "start": "u-start", "end": "u-end"}
+
+
+def test_normalize_class_turns_yn_flags_into_booleans():
+    # "N" is a non-empty string and therefore truthy; passing it through
+    # unchanged would read as "teaches on Saturday" to any caller.
+    result = api.normalize_class(class_wire_record(teach_days=("m", "w", "f")))
+    teaching = [d for d, v in result["schedule"].items() if v["teaches"]]
+    assert teaching == ["monday", "wednesday", "friday"]
+
+
+def test_build_schedule_indexes_from_sunday():
+    # teachDay1 is Sunday, not Monday. Off-by-one here silently schedules a
+    # class on the wrong days.
+    slot = json.loads(api.build_schedule(["monday", "wednesday", "friday"], "08/31/2026"))[0]
+    assert slot["teachDay1"] is False   # Sunday
+    assert slot["teachDay2"] is True    # Monday
+    assert slot["teachDay4"] is True    # Wednesday
+    assert slot["teachDay6"] is True    # Friday
+    assert slot["teachDay7"] is False   # Saturday
+    assert slot["scheduleStart"] == "08/31/2026"
+
+
+def test_update_class_forces_schedule_change_flag():
+    # Without scheduleChange=true the rename lands and the days silently do not.
+    payload = api.update_class(
+        None, class_id=5, name="X", start_date="08/31/2026",
+        end_date="06/06/2027", days=["monday"], dry_run=True)["payload"]
+    assert payload["scheduleChange"] == "true"
+    assert payload["classId"] == "5"
 
 
 @responses.activate

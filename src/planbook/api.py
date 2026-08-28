@@ -8,6 +8,7 @@ translation when you need to see exactly what the server said.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
@@ -46,8 +47,10 @@ def normalize_class(raw: dict[str, Any]) -> dict[str, Any]:
     """Map one wire-format class record to readable keys."""
     schedule = {}
     for day, prefix in DAY_PREFIXES.items():
+        # The wire format uses "Y"/"N" strings; a raw "N" is truthy in Python
+        # and would read as "teaches on Sunday" to anything checking it.
         schedule[day] = {
-            "teaches": raw.get(f"{prefix}T"),
+            "teaches": str(raw.get(f"{prefix}T", "")).upper() == "Y",
             "start": raw.get(f"{prefix}St"),
             "end": raw.get(f"{prefix}Et"),
         }
@@ -80,18 +83,54 @@ def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]
     }
 
 
-def create_class(
-    client: PlanbookClient,
+# Weekday order for the *_Teach form fields.
+DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday",
+             "saturday", "sunday"]
+
+# The schedule JSON is indexed differently: teachDay1 is SUNDAY, not Monday.
+# Getting this wrong does not error - it quietly schedules the class on the
+# wrong days (asking for Mon/Wed/Fri produced Tue/Thu/Sun).
+SCHEDULE_DAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday",
+                      "friday", "saturday"]
+
+# Planbook schedules support rotations up to 20 days long, so the schedule
+# JSON always carries all twenty slots. For an ordinary weekly timetable the
+# first seven are the days of the week and the rest stay false.
+SCHEDULE_SLOTS = 20
+
+
+def build_schedule(days: list[str], start_date: str,
+                   times: dict[str, tuple[str, str]] | None = None) -> str:
+    """Build the `schedules` JSON the class endpoints expect."""
+    times = times or {}
+    slot: dict[str, Any] = {"scheduleStart": start_date, "additionalClassDays": []}
+    for index in range(1, SCHEDULE_SLOTS + 1):
+        day = (SCHEDULE_DAY_ORDER[index - 1]
+               if index <= len(SCHEDULE_DAY_ORDER) else None)
+        teaches = bool(day and day in days)
+        start, end = times.get(day or "", ("", ""))
+        slot[f"teachDay{index}"] = teaches
+        slot[f"startDay{index}"] = start if teaches else ""
+        slot[f"endDay{index}"] = end if teaches else ""
+    return json.dumps([slot], separators=(",", ":"))
+
+
+def _class_payload(
     *,
     name: str,
     start_date: str,
     end_date: str,
     days: list[str],
-    color: str = "#7ED321",
-    description: str = "",
-) -> dict[str, Any]:
-    """Create a class. Mirrors the fields the web UI sends to /addClass."""
-    payload: dict[str, Any] = {
+    color: str,
+    description: str,
+) -> dict[str, str]:
+    """Shared body for creating and updating a class.
+
+    Booleans here are "Y"/"N", not "true"/"false". Sending true/false is
+    accepted without complaint and silently produces a class that teaches on
+    no days at all.
+    """
+    payload: dict[str, str] = {
         "className": name,
         "classStartDate": start_date,
         "classEndDate": end_date,
@@ -100,22 +139,87 @@ def create_class(
         "titleColor": "#000000",
         "titleSize": "12",
         "titleFont": "Arial",
-        "classLabelBold": "false",
-        "classLabelItalic": "false",
-        "classLabelUnderline": "false",
-        "noStudents": "true",
-        "useSchoolStart": "false",
-        "useSchoolEnd": "false",
-        "updateNoClass": "false",
+        "classLabelBold": yn(False),
+        "classLabelItalic": yn(False),
+        "classLabelUnderline": yn(False),
+        "noStudents": yn(True),
+        "useSchoolStart": yn(False),
+        "useSchoolEnd": yn(False),
+        "updateNoClass": yn(True),
         "shiftLessons": "false",
         "scheduleChange": "false",
         "source": "",
         "sourceId": "0",
+        "sourceSettings[connectStudents]": "true",
+        "sourceSettings[connectAssignments]": "true",
+        "sourceSettings[connectGrades]": "true",
+        "userMode": "T",
+        "collaborateType": "0",
+        "collaborateSubjectId": "0",
+        "collaborateKey": "",
+        "lessonLayoutId": "0",
+        "schedules": build_schedule(days, start_date),
+        # "true" only validates; it never commits. Same trap as events.
+        "verifyShift": "false",
     }
-    for day in DAY_PREFIXES:
-        payload[f"{day}Teach"] = "true" if day in days else "false"
-        payload[f"wk2{day}Teach"] = "false"
-    return client.post("/addClass", payload)
+    for day in DAY_ORDER:
+        payload[f"{day}Teach"] = yn(day in days)
+    return payload
+
+
+def create_class(
+    client: PlanbookClient | None,
+    *,
+    name: str,
+    start_date: str,
+    end_date: str,
+    days: list[str],
+    color: str = "#7ED321",
+    description: str = "",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
+                             days=days, color=color, description=description)
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/addClass", "payload": payload}
+    client.post("/addClass", payload)
+    return {"ok": True, "name": name, "days": days}
+
+
+def update_class(
+    client: PlanbookClient | None,
+    *,
+    class_id: Any,
+    name: str,
+    start_date: str,
+    end_date: str,
+    days: list[str],
+    color: str = "#7ED321",
+    description: str = "",
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Update a class, replacing its schedule.
+
+    Two things differ from creating:
+
+    * the path is versioned - `/updateClass/v10`. Plain `/updateClass` exists
+      and answers, but is not what the app calls.
+    * `scheduleChange` must be "true" or the new schedule is ignored while
+      the rest of the update still succeeds, so a rename works and the days
+      silently do not.
+    """
+    payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
+                             days=days, color=color, description=description)
+    payload["classId"] = intish(class_id)
+    payload["scheduleChange"] = "true"
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateClass/v10", "payload": payload}
+    client.post("/updateClass/v10", payload)
+    return {"ok": True, "class_id": payload["classId"], "name": name, "days": days}
+
+
+def get_class(client: PlanbookClient, class_id: Any) -> Any:
+    return client.post("/getClass", {"classId": intish(class_id)})
 
 
 def set_lesson(

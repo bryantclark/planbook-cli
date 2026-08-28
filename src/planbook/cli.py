@@ -352,6 +352,33 @@ def cmd_events_delete(args: argparse.Namespace) -> None:
                           dry_run=args.dry_run))
 
 
+def cmd_units_list(args: argparse.Namespace) -> None:
+    emit(api.list_units(client_from(args), raw=args.raw))
+
+
+def cmd_units_create(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
+    emit(api.create_unit(client, class_id=args.class_id, number=args.number,
+                         title=args.title, description=args.description or "",
+                         start=args.start or "", end=args.end or "",
+                         dry_run=args.dry_run))
+
+
+def cmd_units_update(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
+    emit(api.update_unit(client, unit_id=args.unit_id, class_id=args.class_id,
+                         number=args.number, title=args.title,
+                         description=args.description or "",
+                         start=args.start or "", end=args.end or "",
+                         dry_run=args.dry_run))
+
+
+def cmd_units_delete(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
+    emit(api.delete_unit(client, unit_id=args.unit_id, class_id=args.class_id,
+                         dry_run=args.dry_run))
+
+
 def cmd_endpoints(args: argparse.Namespace) -> None:
     emit([{"path": p, "status": s, "description": d} for p, s, d in ENDPOINTS])
 
@@ -477,6 +504,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("standards", help="standards available to the account")
     p.set_defaults(func=cmd_standards)
+    p_un = sub.add_parser("units", help="list, create, update and delete units")
+    s_un = p_un.add_subparsers(dest="units_command", required=True)
+    u = s_un.add_parser("list", help="list units")
+    u.add_argument("--raw", action="store_true")
+    u.set_defaults(func=cmd_units_list)
+    for verb, fn in (("create", cmd_units_create), ("update", cmd_units_update)):
+        u = s_un.add_parser(verb, help=f"{verb} a unit")
+        if verb == "update":
+            u.add_argument("--unit-id", dest="unit_id", required=True)
+        u.add_argument("--class-id", dest="class_id", required=True)
+        u.add_argument("--number", required=True, help="unit number, e.g. U1")
+        u.add_argument("--title", required=True)
+        u.add_argument("--description")
+        u.add_argument("--start", metavar="MM/DD/YYYY")
+        u.add_argument("--end", metavar="MM/DD/YYYY")
+        u.add_argument("--dry-run", action="store_true")
+        u.set_defaults(func=fn)
+    u = s_un.add_parser("delete", help="delete a unit")
+    u.add_argument("--unit-id", dest="unit_id", required=True)
+    u.add_argument("--class-id", dest="class_id", required=True)
+    u.add_argument("--dry-run", action="store_true")
+    u.set_defaults(func=cmd_units_delete)
+
     p_ev = sub.add_parser("events", help="list, create and delete calendar events")
     s_ev = p_ev.add_subparsers(dest="events_command", required=True)
     e = s_ev.add_parser("list", help="list events")
@@ -504,7 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     e.set_defaults(func=cmd_events_delete)
 
     for name, (path, _unwrap) in api.SIMPLE_READS.items():
-        if name == "events":
+        if name in ("events", "units"):
             continue
         rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
         rp.add_argument("--raw", action="store_true",

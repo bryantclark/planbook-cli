@@ -231,7 +231,6 @@ def standards(client: PlanbookClient) -> Any:
 #
 #   name -> (path, required-fields-builder or None, response key to unwrap)
 SIMPLE_READS: dict[str, tuple[str, str | None]] = {
-    "units": ("/getUnits", "units"),
     "todos": ("/getToDos", None),
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
@@ -413,3 +412,110 @@ def delete_event(
     client.post("/deleteEvent", payload)
     return {"ok": True, "deleted_event_id": payload["eventId"],
             "title": payload["eventTitle"]}
+
+
+# ---------------------------------------------------------------------------
+# Units
+#
+# All three operations go through /updateUnit; `action` selects which:
+# "A" add, "U" update, "D" delete. `subjectId` is the class id - Planbook
+# calls a class a "subject" here and nowhere else.
+
+UNIT_ACTIONS = {"add": "A", "update": "U", "delete": "D"}
+
+
+def _unit_payload(
+    *,
+    action: str,
+    class_id: Any,
+    unit_id: Any = 0,
+    number: str = "",
+    title: str = "",
+    description: str = "",
+    start: str = "",
+    end: str = "",
+    lesson_text: str = "",
+    homework_text: str = "",
+    notes_text: str = "",
+) -> dict[str, str]:
+    return {
+        "unitId": intish(unit_id),
+        "subjectId": intish(class_id),
+        "unitNum": number,
+        "unitTitle": title,
+        "action": action,
+        "unitDesc": description,
+        "unitStart": start,
+        "unitEnd": end,
+        "unitLessonText": lesson_text,
+        "unitHomeworkText": homework_text,
+        "unitNotesText": notes_text,
+        "unitSection4Text": "",
+        "unitSection5Text": "",
+        "unitSection6Text": "",
+        "userMode": "T",
+        "types": "SS",
+    }
+
+
+def list_units(client: PlanbookClient, *, raw: bool = False) -> Any:
+    body = client.post("/getUnits")
+    if raw or not isinstance(body, dict):
+        return body
+    return body.get("units", body)
+
+
+def create_unit(
+    client: PlanbookClient | None,
+    *,
+    class_id: Any,
+    number: str,
+    title: str,
+    description: str = "",
+    start: str = "",
+    end: str = "",
+    dry_run: bool = False,
+) -> Any:
+    payload = _unit_payload(action="A", class_id=class_id, number=number,
+                            title=title, description=description,
+                            start=start, end=end)
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
+    client.post("/updateUnit", payload)
+    return {"ok": True, "class_id": payload["subjectId"], "number": number,
+            "title": title}
+
+
+def update_unit(
+    client: PlanbookClient | None,
+    *,
+    unit_id: Any,
+    class_id: Any,
+    number: str,
+    title: str,
+    description: str = "",
+    start: str = "",
+    end: str = "",
+    dry_run: bool = False,
+) -> Any:
+    payload = _unit_payload(action="U", class_id=class_id, unit_id=unit_id,
+                            number=number, title=title, description=description,
+                            start=start, end=end)
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
+    client.post("/updateUnit", payload)
+    return {"ok": True, "unit_id": payload["unitId"], "title": title}
+
+
+def delete_unit(
+    client: PlanbookClient | None,
+    *,
+    unit_id: Any,
+    class_id: Any,
+    dry_run: bool = False,
+) -> Any:
+    payload = _unit_payload(action="D", class_id=class_id, unit_id=unit_id)
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
+    client.post("/updateUnit", payload)
+    return {"ok": True, "deleted_unit_id": payload["unitId"]}

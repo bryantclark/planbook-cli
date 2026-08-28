@@ -49,10 +49,10 @@ class PlanbookClient:
         self.timeout = timeout
         self.http = requests.Session()
         self.http.headers["User-Agent"] = USER_AGENT
-        # The API host reads SESSION; set it for the whole domain so the
-        # auth host and the api host share one jar.
+        # One entry only, on the parent domain: it covers api.planbook.com and
+        # auth.planbook.com alike. Setting it per-host as well makes requests
+        # send "SESSION=x; SESSION=x", which some servers reject outright.
         self.http.cookies.set("SESSION", session_cookie, domain=".planbook.com")
-        self.http.cookies.set("SESSION", session_cookie, domain="api.planbook.com")
 
     def post(self, path: str, data: dict[str, Any] | None = None) -> Any:
         """POST a form-encoded request and return the decoded body."""

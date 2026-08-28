@@ -38,19 +38,25 @@ def _csrf_token(html: str) -> str:
 
 
 def _session_cookies(http: requests.Session) -> Iterator[str]:
-    """Yield every distinct SESSION value in the jar, newest-looking first."""
+    """Yield every distinct access token in the jar, newest-looking first."""
     seen: list[str] = []
     for cookie in http.cookies:
-        if cookie.name == "SESSION" and cookie.value and cookie.value not in seen:
+        if cookie.name.endswith(".accesstoken") and cookie.value and cookie.value not in seen:
             seen.append(cookie.value)
     # Reverse: the post-login cookie is set after the pre-auth one.
     yield from reversed(seen)
 
 
-def _works(cookie: str) -> bool:
+def _works(token: str) -> bool:
+    """True if this access token authenticates against the API.
+
+    Planbook's credential is a JWT sent as `Authorization: Bearer`. The
+    `SESSION` cookie is not involved: the API issues one to anonymous callers
+    too, which is exactly why it is a trap when copied by hand.
+    """
     probe = requests.Session()
     probe.headers["User-Agent"] = USER_AGENT
-    probe.cookies.set("SESSION", cookie, domain=".planbook.com")
+    probe.headers["Authorization"] = f"Bearer {token}"
     try:
         resp = probe.post(f"{API_BASE}/getClasses2", timeout=30)
         body = resp.json()

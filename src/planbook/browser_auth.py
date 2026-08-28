@@ -28,13 +28,17 @@ from .default_browser import (
 )
 from .errors import LoginFailed
 
-# Sign in on the auth host, never the app host. app.planbook.com sits behind
-# an AWS WAF that challenges any automated browser (verified: HTTP 405,
-# "Human Verification"). auth.planbook.com has no such protection, and it is
-# where the login form and every SSO button actually live. Routing here is
-# using the unprotected endpoint, not evading the protected one.
-SIGNIN_URL = "https://auth.planbook.com/login"
+# The app host mints the access token, so sign-in has to end up there.
+# A headed browser loads it fine; only headless is challenged by the WAF
+# (verified: headed Brave 200, headless 405 "Human Verification"). That is
+# why interactive sign-in works and silent headless refresh may not.
+SIGNIN_URL = "https://app.planbook.com/"
 API_PROBE = "https://api.planbook.com/getClasses2"
+
+# The browser carries the credential as a cookie named `U|<view-id>|.accesstoken`.
+# The view id varies per session and the server does not validate it, so match
+# on the suffix.
+TOKEN_COOKIE_SUFFIX = ".accesstoken"
 
 # Channels to try, in order. Real installed browsers first.
 CHANNELS = ("chrome", "msedge", "chromium")
@@ -183,33 +187,18 @@ def login_via_browser(
                 if not headless and not context.pages:
                     raise LoginFailed("Browser was closed before sign-in completed.")
 
-                # Ask the API, from inside the browser, using the browser's own
-                # cookie jar. This does two jobs at once: it tells us whether
-                # the sign-in has taken effect, and it makes the server issue
-                # an api-host SESSION cookie if the auth-host session
-                # propagates. Guessing which cookie to try would not do that.
-                try:
-                    resp = context.request.post(API_PROBE, timeout=15_000)
-                    body = resp.json()
-                    signed_in = (
-                        isinstance(body, dict)
-                        and str(body.get("notLoggedIn", "")).lower() != "true"
-                    )
-                except Exception:
-                    signed_in = False
-
-                if signed_in:
-                    for cookie in context.cookies():
-                        value = cookie.get("value")
-                        if cookie.get("name") != "SESSION" or not value:
-                            continue
-                        if value in tested:
-                            continue
-                        tested.add(value)
-                        # Confirm the cookie works on its own, outside the
-                        # browser - that is how the CLI will use it.
-                        if _works(value):
-                            return value
+                for cookie in context.cookies():
+                    name = cookie.get("name") or ""
+                    value = cookie.get("value")
+                    if not value or not name.endswith(TOKEN_COOKIE_SUFFIX):
+                        continue
+                    if value in tested:
+                        continue
+                    tested.add(value)
+                    # Confirm it works standalone, as the CLI will use it:
+                    # a Bearer header with no cookies and no browser.
+                    if _works(value):
+                        return value
 
                 time.sleep(2)
         finally:

@@ -21,7 +21,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import os
+
 from . import __version__, api, auth, browser_auth, config
+from . import token as pbtoken
 from .client import PlanbookClient
 from .endpoints import ENDPOINTS
 from .errors import PlanbookError, UsageError
@@ -32,7 +35,7 @@ def emit(value: Any) -> None:
     sys.stdout.write("\n")
 
 
-SESSION_RE = re.compile(r"SESSION=([0-9a-fA-F-]{36})")
+_UNUSED_SESSION_RE = re.compile(r"SESSION=([0-9a-fA-F-]{36})")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 
 
@@ -69,74 +72,84 @@ def cmd_auth_login(args: argparse.Namespace) -> None:
     emit({"ok": True, "stored": str(path), "username": username})
 
 
-def cmd_auth_cookie(args: argparse.Namespace) -> None:
-    """Store a SESSION cookie copied out of a signed-in browser.
+def cmd_auth_token(args: argparse.Namespace) -> None:
+    """Store a Planbook access token copied out of a signed-in browser.
 
-    The way in for SSO accounts (Google, Microsoft, Clever, ClassLink,
-    Apple), which the form login cannot drive.
-
-    Prompts when the value is omitted. Prefer that: the cookie is a bearer
-    credential for the whole account, and passing it as an argument leaves
-    it in shell history and in the process list.
+    Accepts anything containing the token: the bare JWT, a Cookie header, or
+    a whole "Copy as cURL" paste. Verifies before storing, because a token
+    that does not work should fail here rather than three commands later.
     """
-    raw = args.value or getpass.getpass("Paste cookie, Cookie header, or curl: ")
-    value = extract_session(raw)
+    raw = args.value or getpass.getpass("Paste token, cookie, or curl: ")
+    value = pbtoken.extract(raw)
     if not value:
         raise UsageError(
-            "No SESSION value found in that input. Paste either the cookie "
-            "value itself, a whole Cookie: header, or a request copied with "
-            "DevTools -> right-click -> Copy as cURL."
+            "No access token found in that input.\n"
+            "Paste the JWT itself, or a request copied with DevTools -> "
+            "Network -> right-click a call to api.planbook.com -> Copy as cURL. "
+            "The token is the cookie named U|...|.accesstoken - NOT the SESSION "
+            "cookie, which is not what authenticates you."
         )
 
-    # Verify before storing. A cookie that does not work should fail here,
-    # not three commands later with a confusing error - and DevTools shows an
-    # anonymous SESSION next to the real one, so a wrong paste is easy.
-    if not args.no_verify:
-        from .auth import _works
-        if not _works(value):
-            raise UsageError(
-                "That SESSION was found but the API rejects it.\n"
-                "It is most likely an anonymous session. Get the authenticated "
-                "one from DevTools -> Network -> filter 'api.planbook.com' -> "
-                "click getClasses2 -> right-click -> Copy as cURL, then paste "
-                "the whole thing here."
-            )
+    info = pbtoken.describe(value)
+    if pbtoken.is_expired(value):
+        raise UsageError(
+            "That token has already expired. Reload Planbook in your browser "
+            "and copy a fresh one."
+        )
 
-    path = config.save_session(value)
-    emit({"ok": True, "stored": str(path), "verified": not args.no_verify})
+    if not args.no_verify:
+        client = PlanbookClient(value, verbose=args.verbose)
+        api.list_classes(client)  # raises NotAuthenticated if the token is bad
+
+    path = config.save_session(value, info.get("email"))
+    emit({
+        "ok": True,
+        "stored": str(path),
+        "verified": not args.no_verify,
+        "email": info.get("email"),
+        "expires_in_hours": info.get("expires_in_hours"),
+    })
 
 
 def cmd_auth_browser(args: argparse.Namespace) -> None:
     """Sign in by opening a browser and waiting for the user to do it.
 
-    Tries a silent refresh from the stored profile first, so a routine
-    re-auth costs nothing and only a genuinely expired sign-in opens a
-    window. --interactive forces the window.
+    Discouraged - see README. Kept because it needs no manual copying, and
+    because it becomes the good path if Planbook ever registers an OAuth
+    client.
     """
     if args.interactive:
-        cookie = browser_auth.login_via_browser(
+        value = browser_auth.login_via_browser(
             timeout=args.timeout, channel=args.channel, profile=args.profile
         )
         interactive = True
     else:
-        cookie, interactive = browser_auth.refresh_or_login(
+        value, interactive = browser_auth.refresh_or_login(
             timeout=args.timeout, channel=args.channel, profile=args.profile
         )
-    path = config.save_session(cookie)
+    info = pbtoken.describe(value)
+    path = config.save_session(value, info.get("email"))
     emit({
         "ok": True,
         "stored": str(path),
         "method": "browser",
         "interactive": interactive,
+        "email": info.get("email"),
+        "expires_in_hours": info.get("expires_in_hours"),
     })
 
 
 def cmd_auth_status(args: argparse.Namespace) -> None:
-    client = client_from(args)
+    raw = config.load_session()
+    info = pbtoken.describe(raw)
+    client = PlanbookClient(raw, verbose=args.verbose)
     body = api.list_classes(client)
     emit({
         "authenticated": True,
-        "source": "env" if config.SESSION_ENV in __import__("os").environ else "file",
+        "source": "env" if config.TOKEN_ENV in os.environ else "file",
+        "email": info.get("email"),
+        "account_id": info.get("account_id"),
+        "expires_in_hours": info.get("expires_in_hours"),
         "current_year_id": body["current_year_id"],
         "class_count": len(body["classes"]),
     })
@@ -297,13 +310,15 @@ def build_parser() -> argparse.ArgumentParser:
     a = s_auth.add_parser("login", help="sign in with email and password (prompts)")
     a.add_argument("--username", help="email or user ID; prompted for if omitted")
     a.set_defaults(func=cmd_auth_login)
-    a = s_auth.add_parser("cookie", help="store a SESSION cookie from a browser (SSO accounts)")
+    # "cookie" kept as an alias: it is in older docs and in muscle memory.
+    a = s_auth.add_parser("token", aliases=["cookie"],
+                          help="store an access token from a signed-in browser")
     a.add_argument("value", nargs="?",
-                   help="cookie value, Cookie header, or a 'Copy as cURL' paste; "
+                   help="the token, a Cookie header, or a 'Copy as cURL' paste; "
                         "prompted for (hidden) if omitted")
     a.add_argument("--no-verify", action="store_true",
-                   help="store without checking the session against the API")
-    a.set_defaults(func=cmd_auth_cookie)
+                   help="store without checking the token against the API")
+    a.set_defaults(func=cmd_auth_token)
     a = s_auth.add_parser(
         "browser",
         help="sign in by opening a browser (works with Google and other SSO)")

@@ -10,6 +10,7 @@ def isolated_config(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     monkeypatch.delenv("PLANBOOK_SESSION", raising=False)
+    monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
     return xdg
 
 
@@ -17,6 +18,8 @@ def isolated_config(monkeypatch, tmp_path):
 def session_file(isolated_config):
     session_dir = isolated_config / "planbook"
     session_dir.mkdir(parents=True)
-    path = session_dir / "session.json"
-    path.write_text('{"session": "test-session"}')
+    path = session_dir / "token.json"
+    # A syntactically valid JWT so token decoding has something to chew on;
+    # the signature is meaningless because only Planbook can verify it.
+    path.write_text('{"token": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ7fSJ9.sig"}')
     return path

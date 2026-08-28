@@ -44,15 +44,21 @@ def intish(value: Any) -> str:
 
 
 class PlanbookClient:
-    def __init__(self, session_cookie: str, *, verbose: bool = False, timeout: int = 30):
+    """Authenticated client.
+
+    Planbook's credential is a JWT. The browser sends it as a cookie named
+    `U|<view-id>|.accesstoken`, but the server accepts a plain
+    `Authorization: Bearer` header just as well - verified - so that is what
+    this uses. The `SESSION` cookie plays no part in authentication.
+    """
+
+    def __init__(self, token: str, *, verbose: bool = False, timeout: int = 30):
         self.verbose = verbose
         self.timeout = timeout
+        self.token = token
         self.http = requests.Session()
         self.http.headers["User-Agent"] = USER_AGENT
-        # One entry only, on the parent domain: it covers api.planbook.com and
-        # auth.planbook.com alike. Setting it per-host as well makes requests
-        # send "SESSION=x; SESSION=x", which some servers reject outright.
-        self.http.cookies.set("SESSION", session_cookie, domain=".planbook.com")
+        self.http.headers["Authorization"] = f"Bearer {token}"
 
     def post(self, path: str, data: dict[str, Any] | None = None) -> Any:
         """POST a form-encoded request and return the decoded body."""
@@ -86,7 +92,8 @@ class PlanbookClient:
         if isinstance(body, dict):
             if str(body.get("notLoggedIn", "")).lower() == "true":
                 raise NotAuthenticated(
-                    "Session rejected. Run `planbook auth login` to get a new one."
+                    "Token rejected or expired. Run `planbook auth token` "
+                    "to store a fresh one."
                 )
             if str(body.get("error", "")).lower() == "true":
                 raise ApiError(body.get("msg") or f"{url} reported an unspecified error")

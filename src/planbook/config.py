@@ -9,7 +9,8 @@ from pathlib import Path
 from .errors import NotAuthenticated
 
 APP_NAME = "planbook"
-SESSION_ENV = "PLANBOOK_SESSION"
+TOKEN_ENV = "PLANBOOK_TOKEN"
+SESSION_ENV = TOKEN_ENV  # backwards-compatible alias
 
 
 def config_dir() -> Path:
@@ -19,15 +20,15 @@ def config_dir() -> Path:
 
 
 def session_path() -> Path:
-    return config_dir() / "session.json"
+    return config_dir() / "token.json"
 
 
-def save_session(cookie: str, username: str | None = None) -> Path:
+def save_session(token: str, username: str | None = None) -> Path:
     d = config_dir()
     d.mkdir(parents=True, exist_ok=True)
     path = session_path()
-    payload = {"session": cookie, "username": username}
-    # Written 0600: this cookie is a bearer credential for the whole account.
+    payload = {"token": token, "username": username}
+    # Written 0600: this token is a bearer credential for the whole account.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
         json.dump(payload, fh)
@@ -35,21 +36,21 @@ def save_session(cookie: str, username: str | None = None) -> Path:
 
 
 def load_session() -> str:
-    """Return the session cookie, preferring the environment over disk."""
-    env = os.environ.get(SESSION_ENV)
+    """Return the access token, preferring the environment over disk."""
+    env = os.environ.get(TOKEN_ENV)
     if env:
         return env.strip()
     path = session_path()
     if not path.exists():
         raise NotAuthenticated(
-            "No stored session. Run `planbook auth login`, "
-            f"or set {SESSION_ENV} to a SESSION cookie value."
+            "No stored token. Run `planbook auth token`, "
+            f"or set {TOKEN_ENV} to a Planbook access token."
         )
     try:
         data = json.loads(path.read_text())
-        return data["session"]
+        return data["token"]
     except (ValueError, KeyError) as exc:
-        raise NotAuthenticated(f"Session file at {path} is unreadable: {exc}") from exc
+        raise NotAuthenticated(f"Token file at {path} is unreadable: {exc}") from exc
 
 
 def clear_session() -> bool:

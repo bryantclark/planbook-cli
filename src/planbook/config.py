@@ -10,7 +10,6 @@ from .errors import SIGN_IN_HELP, NotAuthenticated
 
 APP_NAME = "planbook"
 TOKEN_ENV = "PLANBOOK_TOKEN"
-SESSION_ENV = TOKEN_ENV  # backwards-compatible alias
 
 
 def config_dir() -> Path:

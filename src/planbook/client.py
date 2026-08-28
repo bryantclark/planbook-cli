@@ -1,13 +1,12 @@
 """HTTP client for the Planbook private API.
 
-Three things about this API drive the whole design:
+Three API facts drive the design:
 
-1.  Failure arrives as HTTP 200 with an error body. Status codes tell you
-    almost nothing, so every response goes through :meth:`_check`.
-2.  Everything is form-encoded POST. There are no JSON request bodies and no
-    verbs other than POST.
-3.  Empty string is not the same as absent. Integer-typed fields must be "0";
-    sending "" triggers a server-side Java NullPointerException.
+1.  Failure arrives as HTTP 200 with an error body, so every response goes
+    through :meth:`_check`.
+2.  Every call is a form-encoded POST; there is no JSON body and no other verb.
+3.  Integer-typed fields must carry "0" when absent - "" raises a server-side
+    Java NullPointerException.
 
 See docs/API-NOTES.md for the full field conventions.
 """
@@ -16,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from typing import Any
 
 import requests
@@ -26,8 +26,8 @@ from .errors import SIGN_IN_HELP, ApiError, NotAuthenticated, SchemaDrift
 API_BASE = "https://api.planbook.com"
 AUTH_BASE = "https://auth.planbook.com"
 
-# Honest identification. The ToS forbids forging identifiers to disguise
-# origin, and nothing about this tool needs to look like a browser.
+# Honest identification: the ToS forbids disguising origin, and nothing here
+# needs to look like a browser.
 USER_AGENT = f"planbook-cli/{__version__} (+https://github.com/bryantclark/planbook-cli)"
 
 
@@ -46,10 +46,8 @@ def intish(value: Any) -> str:
 class PlanbookClient:
     """Authenticated client.
 
-    Planbook's credential is a JWT. The browser sends it as a cookie named
-    `U|<view-id>|.accesstoken`, but the server accepts a plain
-    `Authorization: Bearer` header just as well - verified - so that is what
-    this uses. The `SESSION` cookie plays no part in authentication.
+    The credential is the `U|<view-id>|.accesstoken` JWT, sent as
+    `Authorization: Bearer`. The `SESSION` cookie authenticates nothing.
     """
 
     def __init__(self, token: str, *, verbose: bool = False, timeout: int = 30):
@@ -60,20 +58,22 @@ class PlanbookClient:
         self.http.headers["User-Agent"] = USER_AGENT
         self.http.headers["Authorization"] = f"Bearer {token}"
 
-        # The token carries its own expiry, so a stale one can be caught here
-        # rather than spending a round trip to be told the same thing.
+        # The token carries its own expiry, so catch a stale one here instead
+        # of spending a round trip to be told the same thing.
         from . import token as _token
 
         if _token.is_expired(token):
-            info = _token.describe(token)
-            when = info.get("expires_in_hours")
-            ago = f" (expired {abs(when)}h ago)" if isinstance(when, (int, float)) and when else ""
+            expires_at = _token.claims(token).get("exp")
+            ago = ""
+            if isinstance(expires_at, (int, float)):
+                hours = (time.time() - expires_at) / 3600
+                if hours >= 0.1:
+                    ago = f" (expired {hours:.1f}h ago)"
             raise NotAuthenticated(
                 f"Your Planbook token has expired{ago}." + SIGN_IN_HELP
             )
 
     def post(self, path: str, data: dict[str, Any] | None = None) -> Any:
-        """POST a form-encoded request and return the decoded body."""
         url = f"{API_BASE}/{path.lstrip('/')}"
         payload = {k: v for k, v in (data or {}).items() if v is not None}
         if self.verbose:
@@ -112,10 +112,8 @@ class PlanbookClient:
         return body
 
     def require(self, body: Any, *keys: str, where: str) -> dict:
-        """Assert a response carries the keys we expect, or fail loudly.
-
-        The API is undocumented; a silently-changed shape should stop the run
-        rather than produce plausible wrong output.
+        """Require the keys we expect. The API is undocumented, so a changed
+        shape should stop the run rather than produce plausible wrong output.
         """
         if not isinstance(body, dict):
             raise SchemaDrift(f"{where}: expected an object, got {type(body).__name__}")

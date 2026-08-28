@@ -1,17 +1,11 @@
 """Read the access token out of a browser you are already signed in to.
 
-This is the least-hassle way to authenticate, and the only one that does not
-fight somebody's identity provider. You sign in to Planbook normally, in your
-normal browser, with your normal Google session - then this reads the one
-cookie it needs out of that browser's cookie store.
+The recommended path: no browser is driven and nothing is impersonated, so
+identity providers never see automation. It only reads a cookie store the
+user already owns.
 
-Nothing is automated and nothing is impersonated, which is why Google's
-"this browser or app may not be secure" check does not apply: no browser is
-being driven, we are only reading a file the user already owns.
-
-macOS gates the cookie store behind the Keychain. The prompt that appears the
-first time is the consent boundary for this, and it is deliberate. Choosing
-"Always Allow" makes later runs silent.
+On macOS that store is behind the Keychain; the first-run prompt is the
+consent boundary, and "Always Allow" makes later runs silent.
 """
 
 from __future__ import annotations
@@ -21,7 +15,7 @@ from typing import Iterator
 from .errors import LoginFailed
 
 # Order matters: the default browser is tried first by the caller, then these.
-KNOWN_BROWSERS = ("brave", "chrome", "arc", "edge", "vivaldi", "opera", "firefox", "safari")
+KNOWN_BROWSERS = ("brave", "chrome", "edge", "vivaldi", "opera", "firefox", "safari")
 
 TOKEN_SUFFIX = ".accesstoken"
 
@@ -50,9 +44,8 @@ def tokens_from(browser: str) -> list[str]:
 def search(preferred: str | None = None) -> Iterator[tuple[str, str]]:
     """Yield (browser, token) for every Planbook token found locally.
 
-    Browsers that are not installed, or whose store cannot be unlocked, are
-    skipped rather than raising: the point is to find a working token
-    somewhere, and one locked browser should not stop the search.
+    Missing or locked browsers are skipped, not raised: one locked store
+    should not stop the search.
     """
     order = list(KNOWN_BROWSERS)
     if preferred:

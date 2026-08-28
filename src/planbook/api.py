@@ -1,9 +1,8 @@
 """Domain operations, with Planbook's abbreviated field names translated.
 
-The wire format uses keys like `cId`, `cN`, `mSt`. Those are fine for a
-browser bundle and hostile to anyone reading a terminal, so everything that
-leaves this module uses readable names. `--raw` on the CLI bypasses the
-translation when you need to see exactly what the server said.
+The wire format uses keys like `cId`, `cN`, `mSt`, so everything leaving this
+module is renamed. `--raw` bypasses the translation when you need to see
+exactly what the server said.
 """
 
 from __future__ import annotations
@@ -14,8 +13,8 @@ from typing import Any
 from .client import PlanbookClient, intish, yn
 from .errors import SchemaDrift, UsageError
 
-# Planbook's single-letter day prefixes. `r` is Thursday and `u` is Sunday -
-# both are the second letter of their name, not the first.
+# Single-letter day prefixes: `r` is Thursday and `u` is Sunday - the second
+# letter of the name, not the first.
 DAY_PREFIXES = {
     "monday": "m",
     "tuesday": "t",
@@ -47,8 +46,8 @@ def normalize_class(raw: dict[str, Any]) -> dict[str, Any]:
     """Map one wire-format class record to readable keys."""
     schedule = {}
     for day, prefix in DAY_PREFIXES.items():
-        # The wire format uses "Y"/"N" strings; a raw "N" is truthy in Python
-        # and would read as "teaches on Sunday" to anything checking it.
+        # "Y"/"N" strings: a raw "N" is truthy in Python and would read as
+        # "teaches on Sunday".
         schedule[day] = {
             "teaches": str(raw.get(f"{prefix}T", "")).upper() == "Y",
             "start": raw.get(f"{prefix}St"),
@@ -87,15 +86,14 @@ def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]
 DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday",
              "saturday", "sunday"]
 
-# The schedule JSON is indexed differently: teachDay1 is SUNDAY, not Monday.
-# Getting this wrong does not error - it quietly schedules the class on the
-# wrong days (asking for Mon/Wed/Fri produced Tue/Thu/Sun).
+# The schedule JSON indexes differently: teachDay1 is SUNDAY, not Monday. An
+# off-by-one does not error, it silently shifts every day (Mon/Wed/Fri became
+# Tue/Thu/Sun).
 SCHEDULE_DAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday",
                       "friday", "saturday"]
 
-# Planbook schedules support rotations up to 20 days long, so the schedule
-# JSON always carries all twenty slots. For an ordinary weekly timetable the
-# first seven are the days of the week and the rest stay false.
+# Rotations run up to 20 days, so all twenty slots are always sent; a weekly
+# timetable fills the first seven and leaves the rest false.
 SCHEDULE_SLOTS = 20
 
 
@@ -126,9 +124,8 @@ def _class_payload(
 ) -> dict[str, str]:
     """Shared body for creating and updating a class.
 
-    Booleans here are "Y"/"N", not "true"/"false". Sending true/false is
-    accepted without complaint and silently produces a class that teaches on
-    no days at all.
+    Booleans here are "Y"/"N". "true"/"false" is accepted without complaint
+    and silently produces a class that teaches on no days at all.
     """
     payload: dict[str, str] = {
         "className": name,
@@ -159,7 +156,7 @@ def _class_payload(
         "collaborateKey": "",
         "lessonLayoutId": "0",
         "schedules": build_schedule(days, start_date),
-        # "true" only validates; it never commits. Same trap as events.
+        # "true" validates and commits nothing. Same trap as events.
         "verifyShift": "false",
     }
     for day in DAY_ORDER:
@@ -187,35 +184,85 @@ def create_class(
 
 
 def update_class(
-    client: PlanbookClient | None,
+    client: PlanbookClient,
     *,
     class_id: Any,
-    name: str,
-    start_date: str,
-    end_date: str,
-    days: list[str],
-    color: str = "#7ED321",
-    description: str = "",
-    dry_run: bool = False,
+    name: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    days: list[str] | None = None,
+    color: str | None = None,
+    description: str | None = None,
 ) -> dict[str, Any]:
-    """Update a class, replacing its schedule.
+    """Update a class, changing only what you pass.
 
-    Two things differ from creating:
+    Reads the class first and edits that. The endpoint replaces the whole
+    record, so a payload built from defaults would wipe the description,
+    colour, lesson layout and per-day times of anything it did not restate.
 
-    * the path is versioned - `/updateClass/v10`. Plain `/updateClass` exists
-      and answers, but is not what the app calls.
-    * `scheduleChange` must be "true" or the new schedule is ignored while
-      the rest of the update still succeeds, so a rename works and the days
-      silently do not.
+    `/updateClass/v10` is the versioned path the app calls; plain
+    `/updateClass` also answers. `scheduleChange=true` is required or the
+    new schedule is discarded while the rest of the update succeeds.
     """
-    payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
-                             days=days, color=color, description=description)
-    payload["classId"] = intish(class_id)
-    payload["scheduleChange"] = "true"
-    if dry_run:
-        return {"dry_run": True, "endpoint": "/updateClass/v10", "payload": payload}
+    current = get_class(client, class_id)
+    if not isinstance(current, dict) or "className" not in current:
+        raise SchemaDrift(
+            f"getClass({class_id}) did not return a class record. "
+            "Cannot update without reading the current values first."
+        )
+
+    def flag(value: Any) -> str:
+        if isinstance(value, bool):
+            return yn(value)
+        return yn(str(value).upper() == "Y")
+
+    current_days = [d for d in DAY_ORDER if flag(current.get(f"{d}Teach")) == "Y"]
+    times = {
+        d: (current.get(f"{d}StartTime") or "", current.get(f"{d}EndTime") or "")
+        for d in DAY_ORDER
+    }
+    new_days = days if days is not None else current_days
+    start = start_date or current.get("classStartDate") or ""
+
+    payload: dict[str, str] = {
+        "classId": intish(class_id),
+        "className": name if name is not None else current.get("className", ""),
+        "classStartDate": start,
+        "classEndDate": end_date or current.get("classEndDate") or "",
+        "color": color if color is not None else current.get("color") or "#7ED321",
+        "classDesc": (description if description is not None
+                      else current.get("classDesc") or ""),
+        "titleColor": current.get("titleColor") or "#000000",
+        "titleSize": str(current.get("titleSize") or "12"),
+        "titleFont": current.get("titleFont") or "Arial",
+        "classLabelBold": flag(current.get("classLabelBold")),
+        "classLabelItalic": flag(current.get("classLabelItalic")),
+        "classLabelUnderline": flag(current.get("classLabelUnderline")),
+        "noStudents": flag(current.get("noStudents")),
+        "useSchoolStart": flag(current.get("useSchoolStart")),
+        "useSchoolEnd": flag(current.get("useSchoolEnd")),
+        "lessonLayoutId": intish(current.get("lessonLayoutId")),
+        "source": current.get("source") or "",
+        "sourceId": intish(current.get("sourceId")),
+        "collaborateType": intish(current.get("collaborateType")),
+        "collaborateSubjectId": intish(current.get("collaborateSubjectId")),
+        "collaborateKey": current.get("collaborateKey") or "",
+        "sourceSettings[connectStudents]": "true",
+        "sourceSettings[connectAssignments]": "true",
+        "sourceSettings[connectGrades]": "true",
+        "updateNoClass": yn(True),
+        "shiftLessons": "false",
+        "userMode": "T",
+        "schedules": build_schedule(new_days, start, times),
+        "scheduleChange": "true",
+        "verifyShift": "false",
+    }
+    for day in DAY_ORDER:
+        payload[f"{day}Teach"] = yn(day in new_days)
+
     client.post("/updateClass/v10", payload)
-    return {"ok": True, "class_id": payload["classId"], "name": name, "days": days}
+    return {"ok": True, "class_id": payload["classId"],
+            "name": payload["className"], "days": new_days}
 
 
 def get_class(client: PlanbookClient, class_id: Any) -> Any:
@@ -235,7 +282,6 @@ def delete_lesson(
     date: str,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Clear the lesson for one class on one date."""
     payload = {"classId": intish(class_id), "customDate": date, "userMode": "T"}
     if dry_run:
         return {"dry_run": True, "endpoint": "/deleteLesson", "payload": payload}
@@ -257,12 +303,9 @@ def set_lesson(
 ) -> dict[str, Any]:
     """Create or update the lesson for one class on one date.
 
-    `/updateLesson` is addressed by class + date, not by lesson id, so this
-    is an upsert: calling it twice for the same date edits in place rather
-    than creating a duplicate.
-
-    `client` may be None when `dry_run` is set, so that building and
-    inspecting a payload never requires a session.
+    `/updateLesson` is addressed by class + date, not lesson id, so this is an
+    upsert. `client` may be None under `dry_run`: inspecting a payload should
+    never require a session.
     """
     updated = []
     if title is not None:
@@ -317,7 +360,6 @@ def set_lesson(
 def special_days(
     client: PlanbookClient, *, teacher_id: Any, year_id: Any, school_id: Any = 0
 ) -> Any:
-    """Holidays and other non-teaching days for a school year."""
     return client.post(
         "/getSpecialDays",
         {
@@ -331,10 +373,9 @@ def special_days(
 def get_week(client: PlanbookClient, *, monday: str, weeks: int = 1) -> Any:
     """Fetch lessons and events starting from a Monday.
 
-    NOTE: the response shape is only partially mapped. It returns a `days`
-    object keyed by integer offset rather than by date, and the lesson
-    payload inside it has not been fully decoded. Output is passed through
-    unmodified - treat it as raw. See docs/API-NOTES.md ("Open").
+    Only partially mapped - `days` is keyed by integer offset, not date, and
+    the lesson payload inside is undecoded. Output is passed through raw.
+    See docs/API-NOTES.md ("Open").
     """
     return client.post(
         "/getLessonsEvents",
@@ -350,11 +391,7 @@ def standards(client: PlanbookClient) -> Any:
     return client.post("/getStandards")
 
 
-# Read-only endpoints that need no argument handling beyond an optional
-# teacher id. Table-driven because the interesting part is the endpoint list,
-# not fourteen near-identical functions.
-#
-#   name -> (path, required-fields-builder or None, response key to unwrap)
+# Read-only endpoints taking no arguments.  name -> (path, key to unwrap)
 SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
@@ -372,10 +409,8 @@ def simple_read(
 ) -> Any:
     """Fetch one of the argument-free read endpoints.
 
-    Returns the whole body under `--raw`, or the meaningful list when the
-    response is a single-key envelope - most of these wrap one array in one
-    key, and unwrapping it is the difference between output an agent can use
-    directly and output it has to dig through.
+    Most wrap a single array in a single key; that envelope is unwrapped
+    unless `raw`, so callers get the list rather than something to dig through.
     """
     path, unwrap = SIMPLE_READS[name]
     body = client.post(path, extra or {})
@@ -400,11 +435,9 @@ def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Events
 #
-# Events are addressed by id, and both update and delete want the *whole*
-# event echoed back, not just the id. So mutations look the record up first
-# rather than sending a skeleton: the server treats missing fields as
-# cleared, and a delete built from a skeleton silently deletes the wrong
-# occurrence of a repeating event.
+# Update and delete want the *whole* event echoed back, not just its id, so
+# mutations look the record up first: the server treats missing fields as
+# cleared, and a skeleton delete removes the wrong occurrence of a repeat.
 
 EVENT_TYPES = '["Teacher","School","District"]'
 EVENT_SCHEDULES = '["School","NoSchool"]'
@@ -441,17 +474,13 @@ def _event_payload(
 ) -> dict[str, str]:
     """Flatten an event record into the form fields the server expects.
 
-    Two fields differ between creating and deleting, and getting them wrong
-    fails silently - the server returns `{"events": []}` with no error and
-    simply does not create the event:
+    Three fields fail silently when wrong - the server answers `{"events": []}`
+    with no error and does nothing:
 
       eventCurrentDate  empty when creating; the occurrence date when deleting
       shiftLessons      "N" when creating; "false" when deleting
-
-    `verifyShift` is the one that really bites. With "true" the server runs a
-    conflict check and commits nothing, answering `{"events": []}` exactly as
-    if it had succeeded. The web app sends "true" first and re-sends "false"
-    to confirm; a client that only ever sends "true" silently writes nothing.
+      verifyShift       "true" only runs a conflict check and commits nothing;
+                        the app sends "true" then "false" to confirm
     """
     return {
         "eventId": intish(event.get("eventId") or event.get("id")),
@@ -514,36 +543,47 @@ def create_event(
 
 def find_event(client: PlanbookClient, event_id: Any) -> dict[str, Any]:
     wanted = str(event_id)
-    for event in list_events(client, limit=500) or []:
+    # No date window: the server's default range would hide events outside it
+    # and this would report "no such event" for one that exists.
+    for event in list_events(client, start="", end="", limit=1000) or []:
         if str(event.get("eventId") or event.get("id")) == wanted:
             return event
     raise UsageError(f"No event with id {event_id}. Run `planbook events list`.")
 
 
 def delete_event(
-    client: PlanbookClient, *, event_id: Any, dry_run: bool = False
+    client: PlanbookClient,
+    *,
+    event_id: Any,
+    occurrence_only: bool = False,
+    dry_run: bool = False,
 ) -> Any:
+    """Delete an event.
+
+    By default this removes the whole series. `occurrence_only` drops just
+    the one date, which matters for a repeating event.
+    """
     event = find_event(client, event_id)
     payload = _event_payload(
         event,
         current_date=event.get("eventCurrentDate") or event.get("eventDate") or "",
         shift="false",
     )
-    payload["deleteCurrentEvent"] = "false"
+    payload["deleteCurrentEvent"] = "true" if occurrence_only else "false"
     payload["currentSchoolId"] = "0"
     if dry_run:
         return {"dry_run": True, "endpoint": "/deleteEvent", "payload": payload}
     client.post("/deleteEvent", payload)
     return {"ok": True, "deleted_event_id": payload["eventId"],
-            "title": payload["eventTitle"]}
+            "title": payload["eventTitle"],
+            "scope": "occurrence" if occurrence_only else "series"}
 
 
 # ---------------------------------------------------------------------------
 # Units
 #
-# All three operations go through /updateUnit; `action` selects which:
-# "A" add, "U" update, "D" delete. `subjectId` is the class id - Planbook
-# calls a class a "subject" here and nowhere else.
+# All three operations go through /updateUnit, selected by `action` (A/U/D).
+# `subjectId` is the class id - Planbook says "subject" here and nowhere else.
 
 UNIT_ACTIONS = {"add": "A", "update": "U", "delete": "D"}
 
@@ -648,9 +688,8 @@ def delete_unit(
 # ---------------------------------------------------------------------------
 # To-dos
 #
-# Creating one takes two calls, which is how the web app does it: action "A"
-# mints an empty row and returns its id, then action "U" fills it in. There
-# is no single-shot create.
+# Creating one takes two calls, as the web app does: action "A" mints an empty
+# row and returns its id, then "U" fills it in. There is no single-shot create.
 
 TODO_PRIORITIES = {"low": "1", "medium": "2", "high": "3"}
 

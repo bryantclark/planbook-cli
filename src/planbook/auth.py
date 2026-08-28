@@ -1,15 +1,13 @@
 """Login against auth.planbook.com.
 
-The login page is a plain Spring Security form: POST username + password +
-a `_csrf` token scraped from the page you just fetched. There is no OAuth
-dance and no JSON endpoint, so the flow is:
+A plain Spring Security form - no OAuth, no JSON endpoint:
 
-    GET  /login          -> collect the CSRF token and a pre-auth SESSION
-    POST /login          -> exchange credentials for an authenticated SESSION
-    POST /getClasses2    -> confirm the session actually works
+    GET  /login          -> scrape the CSRF token
+    POST /login          -> exchange credentials for cookies
+    POST /getClasses2    -> confirm the resulting token works
 
-The last step matters: Planbook answers a bad login with HTTP 200 and an
-HTML page, so nothing short of a real API call proves success.
+The last step matters: a bad login answers HTTP 200 with an HTML page, so
+nothing short of a real API call proves success.
 """
 
 from __future__ import annotations
@@ -50,9 +48,8 @@ def _session_cookies(http: requests.Session) -> Iterator[str]:
 def _works(token: str) -> bool:
     """True if this access token authenticates against the API.
 
-    Planbook's credential is a JWT sent as `Authorization: Bearer`. The
-    `SESSION` cookie is not involved: the API issues one to anonymous callers
-    too, which is exactly why it is a trap when copied by hand.
+    Only the Bearer JWT counts. `SESSION` is a decoy: the API issues one to
+    anonymous callers too, so a hand-copied SESSION looks right and is not.
     """
     probe = requests.Session()
     probe.headers["User-Agent"] = USER_AGENT
@@ -66,10 +63,10 @@ def _works(token: str) -> bool:
 
 
 def login(username: str, password: str) -> str:
-    """Return an authenticated SESSION cookie value.
+    """Return a working access token.
 
-    Raises :class:`LoginFailed` with a specific reason rather than a generic
-    failure, so an agent can tell a wrong password from a changed login form.
+    Failures name their cause, so a wrong password is distinguishable from a
+    changed login form.
     """
     http = requests.Session()
     http.headers["User-Agent"] = USER_AGENT
@@ -96,8 +93,8 @@ def login(username: str, password: str) -> str:
             return cookie
 
     raise LoginFailed(
-        "Login did not produce a working session. The usual cause is a wrong "
-        "email or password. If those are correct, the account may use SSO "
-        "(Google/Microsoft/Clever/ClassLink/Apple), which this CLI cannot drive - "
-        "sign in through a browser and use `planbook auth cookie <SESSION>` instead."
+        "Login did not produce a working token. The usual cause is a wrong "
+        "email or password. If those are correct, the account signs in with "
+        "SSO, which this form login cannot drive - sign in to Planbook in your "
+        "browser and run `planbook auth import` instead."
     )

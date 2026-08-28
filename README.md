@@ -105,9 +105,13 @@ It expires eventually. When commands start exiting 77, repeat these steps.
 - **The API is undocumented and can change without notice.** When a response stops
   looking the way this tool expects, it raises a schema error and stops rather than
   guessing. That is deliberate: silently-wrong lesson plans are worse than a crash.
-- **`app.planbook.com` is behind an AWS WAF; `api.planbook.com` is not.** This tool
-  only ever talks to the API host. It does not attempt to defeat bot detection, and
-  it identifies itself honestly in its User-Agent.
+- **`app.planbook.com` is behind an AWS WAF; `api.planbook.com` is not.** Every API
+  call this tool makes goes to the API host, identifying itself honestly in its
+  User-Agent. It never tries to defeat bot detection. The one exception is
+  `planbook auth browser`, which opens a real browser window on the app host for a
+  person to sign in - a headed browser passes the WAF the ordinary way, and the
+  headless path is not attempted because it does not and should not work. That
+  command is discouraged anyway; use `planbook auth import`.
 - **Requests are serialized on purpose.** No parallelism, no retry storms. This is
   somebody's real planbook.
 - Planbook's terms (last updated 2020-07-01) contain no anti-automation or

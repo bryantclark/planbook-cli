@@ -1,9 +1,7 @@
 """Find the user's default browser, so sign-in opens the browser they use.
 
-Only Chromium-family browsers can be driven here (Chrome, Brave, Edge, Vivaldi,
-Opera, Arc). Firefox and Safari are not Chromium and cannot share the launch
-path; if one of those is the default, we say so and fall back rather than
-silently opening something else.
+Only Chromium-family browsers can be driven. If the default is Firefox or
+Safari we say so and fall back, rather than silently opening something else.
 """
 
 from __future__ import annotations
@@ -75,11 +73,8 @@ def default_browser_bundle_id() -> str | None:
 
 
 def default_chromium_executable() -> tuple[str, str] | None:
-    """Return (name, executable_path) for the default browser if we can drive it.
-
-    Returns None when the default is not Chromium-based, is not installed
-    where expected, or cannot be determined.
-    """
+    """(name, executable_path) for the default browser, or None if it is not
+    Chromium-based, not installed where expected, or undeterminable."""
     bundle = default_browser_bundle_id()
     if not bundle:
         return None

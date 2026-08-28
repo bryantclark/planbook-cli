@@ -55,7 +55,7 @@ planbook auth status          # verify the token works; cheap, safe to call firs
 planbook auth import          # read the token from the user's browser
 planbook auth browser         # discouraged; opens its own browser window
 planbook auth login           # prompts for a password on a TTY - NOT for agents
-planbook auth cookie          # prompts for a cookie, hidden - NOT for agents
+planbook auth token           # stores a pasted token - NOT for agents
 planbook auth logout
 ```
 
@@ -175,10 +175,20 @@ These come from the server's own behaviour, not from style preference:
 3. `--dry-run` first on anything generated, to see the exact payload.
 4. Then write.
 
+## Destructive commands
+
+These delete data with no undo. Confirm with the user before running them.
+
+- `classes delete <id> --yes` - removes the class **and every lesson in it**. The
+  `--yes` flag is required.
+- `lessons delete --class-id N --date D` - clears one lesson.
+- `events delete <id>` - removes the **whole repeating series** by default; pass
+  `--occurrence-only` for just that date.
+- `units delete`, `todos delete` - remove one record.
+
 ## Things this tool will not do
 
-- Delete a class or a lesson. Not mapped; do it in the web UI.
-- Grades, attendance, students, seating charts, units, templates, lesson banks,
-  messages, reporting. Observed or untouched. `raw` may reach some of them.
-- Drive `app.planbook.com`. That host sits behind an AWS WAF and this tool does not
-  go near it.
+- Grades, attendance, seating charts, lesson banks, messages, reporting. Not mapped;
+  `planbook endpoints` shows what `raw` might reach.
+- Notes and templates are listed but need arguments that are not yet mapped.
+- Sign you in. Every auth path needs a human.

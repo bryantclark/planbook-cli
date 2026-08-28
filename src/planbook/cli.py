@@ -1,14 +1,10 @@
-"""Command-line surface.
+"""Command-line surface, aimed at agents as much as people:
 
-Design notes, because this CLI is aimed at agents as much as people:
-
-* Every command prints JSON to stdout. Nothing else goes to stdout, so the
-  output is always safe to pipe into a parser.
-* Human-readable diagnostics go to stderr.
-* Exit codes are meaningful: 64 usage, 65 unexpected response shape,
-  77 not authenticated, 1 everything else.
-* Writes accept --dry-run, which prints the exact form payload instead of
-  sending it.
+* stdout carries JSON and nothing else, so it is always safe to pipe.
+* Diagnostics go to stderr.
+* Exit codes: 64 usage, 65 unexpected response shape, 77 not authenticated,
+  1 everything else.
+* Writes accept --dry-run, which prints the form payload instead of sending it.
 """
 
 from __future__ import annotations
@@ -16,10 +12,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
+
+import requests
 
 import os
 
@@ -28,7 +25,7 @@ from . import browser_cookies
 from . import token as pbtoken
 from .client import PlanbookClient
 from .endpoints import ENDPOINTS
-from .errors import PlanbookError, UsageError
+from .errors import NotAuthenticated, PlanbookError, UsageError
 
 
 def emit(value: Any) -> None:
@@ -36,37 +33,13 @@ def emit(value: Any) -> None:
     sys.stdout.write("\n")
 
 
-_UNUSED_SESSION_RE = re.compile(r"SESSION=([0-9a-fA-F-]{36})")
-UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
-
-
-def extract_session(text: str) -> str | None:
-    """Pull a SESSION value out of whatever the user pasted.
-
-    Accepts the bare value, a full `Cookie:` header, or an entire command
-    copied with DevTools' "Copy as cURL" - which is the least error-prone
-    thing to ask someone for, since it is one right-click and cannot pick up
-    the wrong cookie.
-    """
-    text = text.strip()
-    if UUID_RE.match(text):
-        return text
-    match = SESSION_RE.search(text)
-    return match.group(1) if match else None
-
-
 def client_from(args: argparse.Namespace) -> PlanbookClient:
     return PlanbookClient(config.load_session(), verbose=args.verbose)
 
 
-# --------------------------------------------------------------------------
-# auth
-
-
 def cmd_auth_login(args: argparse.Namespace) -> None:
     username = args.username or input("Email or user ID: ").strip()
-    # Read the password from a TTY. It is never logged, never passed as an
-    # argv value, and never written anywhere except the 0600 session file.
+    # Read from the TTY: never logged, never in argv, never stored.
     password = getpass.getpass("Password: ")
     cookie = auth.login(username, password)
     path = config.save_session(cookie, username)
@@ -76,9 +49,8 @@ def cmd_auth_login(args: argparse.Namespace) -> None:
 def cmd_auth_token(args: argparse.Namespace) -> None:
     """Store a Planbook access token copied out of a signed-in browser.
 
-    Accepts anything containing the token: the bare JWT, a Cookie header, or
-    a whole "Copy as cURL" paste. Verifies before storing, because a token
-    that does not work should fail here rather than three commands later.
+    Accepts a bare JWT, a Cookie header, or a "Copy as cURL" paste. Verifies
+    first, so a bad token fails here rather than three commands later.
     """
     raw = args.value or getpass.getpass("Paste token, cookie, or curl: ")
     value = pbtoken.extract(raw)
@@ -115,8 +87,7 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
 def cmd_auth_import(args: argparse.Namespace) -> None:
     """Read the access token from a browser the user is already signed in to.
 
-    The recommended path. Nothing is automated, so no identity provider gets
-    suspicious, and there is nothing to copy by hand.
+    The recommended path: nothing is automated and nothing is copied by hand.
     """
     from .default_browser import default_browser_name
 
@@ -132,8 +103,8 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
         client = PlanbookClient(candidate, verbose=args.verbose)
         try:
             api.list_classes(client)
-        except Exception:
-            continue  # stale token from an old sign-in
+        except NotAuthenticated:
+            continue  # stale token from an old sign-in; try the next browser
         info = pbtoken.describe(candidate)
         path = config.save_session(candidate, info.get("email"))
         emit({
@@ -161,9 +132,8 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
 def cmd_auth_browser(args: argparse.Namespace) -> None:
     """Sign in by opening a browser and waiting for the user to do it.
 
-    Discouraged - see README. Kept because it needs no manual copying, and
-    because it becomes the good path if Planbook ever registers an OAuth
-    client.
+    Discouraged (see README), but kept: it needs no manual copying, and would
+    become the good path if Planbook ever registered an OAuth client.
     """
     if args.interactive:
         value = browser_auth.login_via_browser(
@@ -206,17 +176,13 @@ def cmd_auth_logout(args: argparse.Namespace) -> None:
     emit({"cleared": config.clear_session()})
 
 
-# --------------------------------------------------------------------------
-# classes
-
-
 def cmd_classes_list(args: argparse.Namespace) -> None:
     emit(api.list_classes(client_from(args), raw=args.raw))
 
 
 def cmd_classes_create(args: argparse.Namespace) -> None:
-    # Validate arguments before touching auth: a typo in --days should be a
-    # usage error, not a demand that you sign in first.
+    # Validate before touching auth: a typo in --days should be a usage error,
+    # not a demand that you sign in first.
     days = api.parse_days(args.days)
     client = None if args.dry_run else client_from(args)
     emit(api.create_class(
@@ -226,24 +192,19 @@ def cmd_classes_create(args: argparse.Namespace) -> None:
 
 
 def cmd_classes_update(args: argparse.Namespace) -> None:
-    days = api.parse_days(args.days)
-    client = None if args.dry_run else client_from(args)
+    days = api.parse_days(args.days) if args.days else None
     emit(api.update_class(
-        client, class_id=args.class_id, name=args.name, start_date=args.start,
-        end_date=args.end, days=days, color=args.color,
-        description=args.description or "", dry_run=args.dry_run))
+        client_from(args), class_id=args.class_id, name=args.name,
+        start_date=args.start, end_date=args.end, days=days,
+        color=args.color, description=args.description))
 
 
 def cmd_classes_get(args: argparse.Namespace) -> None:
     emit(api.get_class(client_from(args), args.class_id))
 
 
-# --------------------------------------------------------------------------
-# lessons
-
-
 def cmd_lessons_set(args: argparse.Namespace) -> None:
-    # A dry run must not need a session: it is the safe first step.
+    # A dry run must not need a session; it is the safe first step.
     client = None if args.dry_run else client_from(args)
     emit(api.set_lesson(
         client,
@@ -258,13 +219,26 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
     ))
 
 
+def _require_class_id(item: dict, args: argparse.Namespace, index: int) -> Any:
+    """A missing class id is a user error, not a zero.
+
+    `intish` turns absent integers into "0" because that is what the API
+    wants for genuinely optional ids. Letting that default through here
+    would post lessons to class 0.
+    """
+    class_id = item.get("class_id", args.class_id)
+    if class_id in (None, ""):
+        raise UsageError(
+            f"Item {index} has no class_id and --class-id was not given."
+        )
+    return class_id
+
+
 def cmd_lessons_bulk(args: argparse.Namespace) -> None:
     """Write many lessons from a JSON file.
 
-    The file is a list of objects, each accepting the same keys as
-    `lessons set`: class_id, date, title, text, homework, notes.
-    Requests are sent one at a time, in order, deliberately: this is
-    somebody's real planbook, not a load test.
+    A list of objects taking the same keys as `lessons set`. Sent one at a
+    time, in order, on purpose: this is somebody's real planbook.
     """
     try:
         items = json.loads(open(args.file).read())
@@ -273,15 +247,22 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
     if not isinstance(items, list):
         raise UsageError(f"{args.file} must contain a JSON list of lesson objects.")
 
-    client = None if args.dry_run else client_from(args)
-    results, failures = [], 0
+    # Validate everything before writing anything: a typo in item 40 should
+    # not leave 39 lessons half-applied.
     for index, item in enumerate(items):
         if not isinstance(item, dict):
             raise UsageError(f"Item {index} is not an object.")
+        if "date" not in item:
+            raise UsageError(f"Item {index} is missing 'date'.")
+        _require_class_id(item, args, index)
+
+    client = None if args.dry_run else client_from(args)
+    results, failures = [], 0
+    for index, item in enumerate(items):
         try:
             results.append(api.set_lesson(
                 client,
-                class_id=item.get("class_id", args.class_id),
+                class_id=_require_class_id(item, args, index),
                 date=item["date"],
                 title=item.get("title"),
                 text=item.get("text"),
@@ -290,8 +271,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 unit_id=item.get("unit_id"),
                 dry_run=args.dry_run,
             ))
-        except KeyError as exc:
-            raise UsageError(f"Item {index} is missing {exc}.") from exc
         except PlanbookError as exc:
             failures += 1
             results.append({"ok": False, "index": index, "error": str(exc)})
@@ -306,10 +285,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
 
 def cmd_lessons_week(args: argparse.Namespace) -> None:
     emit(api.get_week(client_from(args), monday=args.monday, weeks=args.weeks))
-
-
-# --------------------------------------------------------------------------
-# misc
 
 
 def cmd_schedule_special_days(args: argparse.Namespace) -> None:
@@ -359,6 +334,7 @@ def cmd_events_create(args: argparse.Namespace) -> None:
 
 def cmd_events_delete(args: argparse.Namespace) -> None:
     emit(api.delete_event(client_from(args), event_id=args.event_id,
+                          occurrence_only=args.occurrence_only,
                           dry_run=args.dry_run))
 
 
@@ -456,7 +432,6 @@ def build_parser() -> argparse.ArgumentParser:
                         help="log each request to stderr")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # auth
     p_auth = sub.add_parser("auth", help="sign in and inspect the stored session")
     s_auth = p_auth.add_subparsers(dest="auth_command", required=True)
     a = s_auth.add_parser("login", help="sign in with email and password (prompts)")
@@ -493,7 +468,6 @@ def build_parser() -> argparse.ArgumentParser:
     a = s_auth.add_parser("logout", help="delete the stored session")
     a.set_defaults(func=cmd_auth_logout)
 
-    # classes
     p_cls = sub.add_parser("classes", help="list and create classes")
     s_cls = p_cls.add_subparsers(dest="classes_command", required=True)
     c = s_cls.add_parser("list", help="list classes with their weekly schedule")
@@ -509,15 +483,16 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--description")
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_create)
-    c = s_cls.add_parser("update", help="update a class (replaces its schedule)")
+    c = s_cls.add_parser(
+        "update",
+        help="update a class; only the fields you pass change")
     c.add_argument("--class-id", dest="class_id", required=True)
-    c.add_argument("--name", required=True)
-    c.add_argument("--start", required=True, metavar="MM/DD/YYYY")
-    c.add_argument("--end", required=True, metavar="MM/DD/YYYY")
-    c.add_argument("--days", default="MTWRF")
-    c.add_argument("--color", default="#7ED321")
+    c.add_argument("--name")
+    c.add_argument("--start", metavar="MM/DD/YYYY")
+    c.add_argument("--end", metavar="MM/DD/YYYY")
+    c.add_argument("--days", help="replaces the schedule, e.g. MTWRF")
+    c.add_argument("--color")
     c.add_argument("--description")
-    c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
     c.add_argument("class_id")
@@ -528,7 +503,6 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("class_id")
     c.set_defaults(func=cmd_classes_get)
 
-    # lessons
     p_les = sub.add_parser("lessons", help="read and write lessons")
     s_les = p_les.add_subparsers(dest="lessons_command", required=True)
     l = s_les.add_parser("set", help="create or update one lesson (upsert by class+date)")
@@ -560,7 +534,6 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--weeks", type=int, default=1)
     l.set_defaults(func=cmd_lessons_week)
 
-    # schedule
     p_sch = sub.add_parser("schedule", help="school calendar")
     s_sch = p_sch.add_subparsers(dest="schedule_command", required=True)
     s = s_sch.add_parser("special-days", help="holidays and non-teaching days")
@@ -637,8 +610,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="mark as a no-school day")
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_create)
-    e = s_ev.add_parser("delete", help="delete an event by id")
+    e = s_ev.add_parser(
+        "delete", help="delete an event by id (the whole series by default)")
     e.add_argument("event_id")
+    e.add_argument("--occurrence-only", dest="occurrence_only",
+                   action="store_true",
+                   help="delete only this date, not the whole repeating series")
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_delete)
 
@@ -676,6 +653,14 @@ def main(argv: list[str] | None = None) -> int:
     except PlanbookError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return exc.exit_code
+    except ValueError as exc:
+        # int() on a non-numeric --class-id and friends. AGENTS.md promises
+        # 64 for bad arguments, not a traceback.
+        print(f"error: invalid argument: {exc}", file=sys.stderr)
+        return UsageError.exit_code
+    except requests.RequestException as exc:
+        print(f"error: could not reach Planbook: {exc}", file=sys.stderr)
+        return PlanbookError.exit_code
     except KeyboardInterrupt:
         return 130
     return 0

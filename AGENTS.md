@@ -27,6 +27,9 @@ planbook. Surface it to a human.
 - **Dates are always `MM/DD/YYYY`.** Not ISO. `09/03/2026`.
 - **Day specs are letters**: `M T W R F S U`. **R is Thursday, U is Sunday.**
   So a normal weekday class is `MTWRF`.
+- **Times are 12-hour on the wire** ("9:00 AM"). The CLI accepts 24-hour too
+  (`14:30`) and converts. Passing 24-hour straight to `raw` is silently stored as
+  empty, losing the time.
 - **Lesson text accepts HTML.** `<p>...</p>` renders as you would expect. Plain text
   works too.
 - Class ids are integers, returned as `id` by `classes list`.
@@ -102,7 +105,21 @@ output as raw, and do not build logic on its internals.
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" \
   --text "<p>Chloroplasts and the light reactions.</p>" \
+  [--start-time 14:30] [--end-time 15:20] \
   [--homework "Read ch. 4"] [--notes "Lab groups of 3"] [--dry-run]
+```
+
+Lesson times override the class's usual schedule for that day. Bulk items accept
+`start_time` and `end_time` too.
+
+Class schedule times:
+
+```bash
+planbook classes create --name "Biology 1" --start 08/31/2026 --end 06/06/2027 \
+  --days MWF --time "M=8:00-8:45" --time "W=13:00-13:50" --time "F=9:15-10:05"
+
+# or one window for every teaching day
+planbook classes create ... --days MTWRF --time 9:00-9:50
 ```
 
 **`lessons set` is an upsert keyed on class + date.** Writing the same date twice

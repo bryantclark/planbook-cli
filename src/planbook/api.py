@@ -8,6 +8,7 @@ exactly what the server said.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
@@ -27,6 +28,59 @@ DAY_PREFIXES = {
 
 DAY_LETTERS = {"M": "monday", "T": "tuesday", "W": "wednesday",
                "R": "thursday", "F": "friday", "S": "saturday", "U": "sunday"}
+
+
+TIME_RE = re.compile(r"^\s*(\d{1,2})[:.](\d{2})\s*([AaPp])?\.?[Mm]?\.?\s*$")
+
+
+def parse_time(value: str | None) -> str:
+    """Normalize a time to the 12-hour form Planbook stores.
+
+    Planbook accepts only "9:00 AM"-style times. A 24-hour string is taken
+    without complaint and stored as empty, so "14:30" would silently lose the
+    lesson's time. Both forms are accepted here and converted.
+    """
+    if value is None or value == "":
+        return ""
+    match = TIME_RE.match(value)
+    if not match:
+        raise UsageError(
+            f"Could not read {value!r} as a time. Use 9:00 AM, 9:00am, "
+            "or 24-hour 14:30."
+        )
+    hour, minute, meridiem = int(match.group(1)), int(match.group(2)), match.group(3)
+    if minute > 59:
+        raise UsageError(f"{value!r} has an impossible minute.")
+    if meridiem:
+        if not 1 <= hour <= 12:
+            raise UsageError(f"{value!r} has an impossible hour for AM/PM.")
+        suffix = "AM" if meridiem.lower() == "a" else "PM"
+    else:
+        if hour > 23:
+            raise UsageError(f"{value!r} has an impossible hour.")
+        suffix = "AM" if hour < 12 else "PM"
+        hour = hour % 12 or 12
+    return f"{hour}:{minute:02d} {suffix}"
+
+
+def parse_day_times(specs: list[str], days: list[str]) -> dict[str, tuple[str, str]]:
+    """Read --time values into {day: (start, end)}.
+
+    Accepts "9:00-9:50" (every teaching day) or "M=9:00-9:50" (one day).
+    """
+    times: dict[str, tuple[str, str]] = {}
+    for spec in specs or []:
+        target, _, window = spec.rpartition("=")
+        if "-" not in window:
+            raise UsageError(
+                f"--time {spec!r} needs a start and end, e.g. 9:00-9:50 "
+                "or M=9:00-9:50."
+            )
+        start, _, end = window.partition("-")
+        pair = (parse_time(start), parse_time(end))
+        for day in (parse_days(target) if target else days):
+            times[day] = pair
+    return times
 
 
 def parse_days(spec: str) -> list[str]:
@@ -121,6 +175,7 @@ def _class_payload(
     days: list[str],
     color: str,
     description: str,
+    times: dict[str, tuple[str, str]] | None = None,
 ) -> dict[str, str]:
     """Shared body for creating and updating a class.
 
@@ -155,7 +210,7 @@ def _class_payload(
         "collaborateSubjectId": "0",
         "collaborateKey": "",
         "lessonLayoutId": "0",
-        "schedules": build_schedule(days, start_date),
+        "schedules": build_schedule(days, start_date, times),
         # "true" validates and commits nothing. Same trap as events.
         "verifyShift": "false",
     }
@@ -173,10 +228,12 @@ def create_class(
     days: list[str],
     color: str = "#7ED321",
     description: str = "",
+    times: dict[str, tuple[str, str]] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
-                             days=days, color=color, description=description)
+                             days=days, color=color, description=description,
+                             times=times)
     if dry_run:
         return {"dry_run": True, "endpoint": "/addClass", "payload": payload}
     client.post("/addClass", payload)
@@ -193,6 +250,7 @@ def update_class(
     days: list[str] | None = None,
     color: str | None = None,
     description: str | None = None,
+    times: dict[str, tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Update a class, changing only what you pass.
 
@@ -217,10 +275,11 @@ def update_class(
         return yn(str(value).upper() == "Y")
 
     current_days = [d for d in DAY_ORDER if flag(current.get(f"{d}Teach")) == "Y"]
-    times = {
+    current_times = {
         d: (current.get(f"{d}StartTime") or "", current.get(f"{d}EndTime") or "")
         for d in DAY_ORDER
     }
+    current_times.update(times or {})
     new_days = days if days is not None else current_days
     start = start_date or current.get("classStartDate") or ""
 
@@ -253,7 +312,7 @@ def update_class(
         "updateNoClass": yn(True),
         "shiftLessons": "false",
         "userMode": "T",
-        "schedules": build_schedule(new_days, start, times),
+        "schedules": build_schedule(new_days, start, current_times),
         "scheduleChange": "true",
         "verifyShift": "false",
     }
@@ -299,6 +358,8 @@ def set_lesson(
     homework: str | None = None,
     notes: str | None = None,
     unit_id: Any = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create or update the lesson for one class on one date.
@@ -316,10 +377,12 @@ def set_lesson(
         updated.append("HOMEWORKTEXT")
     if notes is not None:
         updated.append("NOTESTEXT")
+    if start_time is not None or end_time is not None:
+        updated.extend(["CUSTOMSTART", "CUSTOMEND"])
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
-            "--homework, --notes."
+            "--homework, --notes, --start-time, --end-time."
         )
 
     payload = {
@@ -337,8 +400,8 @@ def set_lesson(
         "tab5Text": "",
         "tab6Text": "",
         "addClassDaysCode": "",
-        "customStart": "",
-        "customEnd": "",
+        "customStart": parse_time(start_time),
+        "customEnd": parse_time(end_time),
         "lessonLock": yn(False),
         "isEditingALinkedLesson": yn(False),
         "strategySent": yn(True),
@@ -491,8 +554,8 @@ def _event_payload(
         "endDate": event.get("endDate") or event.get("eventDate") or "",
         "repeats": event.get("repeats") or "daily",
         "eventText": event.get("eventText") or "",
-        "eventStartTime": event.get("eventStartTime") or "",
-        "eventEndTime": event.get("eventEndTime") or "",
+        "eventStartTime": parse_time(event.get("eventStartTime")),
+        "eventEndTime": parse_time(event.get("eventEndTime")),
         "eventTitle": event.get("eventTitle") or "",
         "eventCurrentDate": current_date if current_date is not None else "",
         "specialDayId": intish(event.get("specialDayId")),

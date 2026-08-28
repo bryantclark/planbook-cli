@@ -187,8 +187,8 @@ def cmd_classes_create(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
     emit(api.create_class(
         client, name=args.name, start_date=args.start, end_date=args.end,
-        days=days, color=args.color,
-        description=args.description or "", dry_run=args.dry_run))
+        days=days, color=args.color, description=args.description or "",
+        times=api.parse_day_times(args.time, days), dry_run=args.dry_run))
 
 
 def cmd_classes_update(args: argparse.Namespace) -> None:
@@ -196,7 +196,8 @@ def cmd_classes_update(args: argparse.Namespace) -> None:
     emit(api.update_class(
         client_from(args), class_id=args.class_id, name=args.name,
         start_date=args.start, end_date=args.end, days=days,
-        color=args.color, description=args.description))
+        color=args.color, description=args.description,
+        times=api.parse_day_times(args.time, days or [])))
 
 
 def cmd_classes_get(args: argparse.Namespace) -> None:
@@ -215,6 +216,8 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
         homework=args.homework,
         notes=args.notes,
         unit_id=args.unit_id,
+        start_time=args.start_time,
+        end_time=args.end_time,
         dry_run=args.dry_run,
     ))
 
@@ -269,6 +272,8 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 homework=item.get("homework"),
                 notes=item.get("notes"),
                 unit_id=item.get("unit_id"),
+                start_time=item.get("start_time"),
+                end_time=item.get("end_time"),
                 dry_run=args.dry_run,
             ))
         except PlanbookError as exc:
@@ -481,6 +486,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="days taught, e.g. MTWRF (R=Thursday, U=Sunday)")
     c.add_argument("--color", default="#7ED321")
     c.add_argument("--description")
+    c.add_argument("--time", action="append", default=[], metavar="SPEC",
+                   help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
+                        "for one day; repeatable")
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_create)
     c = s_cls.add_parser(
@@ -493,6 +501,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--days", help="replaces the schedule, e.g. MTWRF")
     c.add_argument("--color")
     c.add_argument("--description")
+    c.add_argument("--time", action="append", default=[], metavar="SPEC",
+                   help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
+                        "for one day; repeatable")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
     c.add_argument("class_id")
@@ -513,6 +524,9 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--homework")
     l.add_argument("--notes")
     l.add_argument("--unit-id", dest="unit_id")
+    l.add_argument("--start-time", dest="start_time", metavar="TIME",
+                   help="lesson start, e.g. 9:00am or 14:30")
+    l.add_argument("--end-time", dest="end_time", metavar="TIME")
     l.add_argument("--dry-run", action="store_true",
                    help="print the form payload instead of sending it")
     l.set_defaults(func=cmd_lessons_set)

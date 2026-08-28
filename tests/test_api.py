@@ -208,3 +208,54 @@ def test_list_classes_raises_schema_drift_without_classes_key():
     responses.post(f"{API_BASE}/getClasses2", json={"currentYearId": 99})
     with pytest.raises(SchemaDrift):
         api.list_classes(PlanbookClient("cookie"))
+
+
+def test_parse_time_accepts_24h_and_12h():
+    # Planbook stores only 12-hour times; a 24-hour string is accepted on the
+    # wire and stored as empty, silently losing the time.
+    assert api.parse_time("14:30") == "2:30 PM"
+    assert api.parse_time("09:00") == "9:00 AM"
+    assert api.parse_time("9:00am") == "9:00 AM"
+    assert api.parse_time("9:00 AM") == "9:00 AM"
+    assert api.parse_time("") == ""
+    assert api.parse_time(None) == ""
+
+
+def test_parse_time_handles_noon_and_midnight():
+    assert api.parse_time("12:00") == "12:00 PM"
+    assert api.parse_time("00:15") == "12:15 AM"
+    assert api.parse_time("12:00 AM") == "12:00 AM"
+
+
+def test_parse_time_rejects_nonsense():
+    for bad in ("9:5", "25:00", "10:99", "lunchtime"):
+        with pytest.raises(UsageError):
+            api.parse_time(bad)
+
+
+def test_parse_day_times_whole_week_and_per_day():
+    assert api.parse_day_times(["9:00-9:50"], ["monday", "friday"]) == {
+        "monday": ("9:00 AM", "9:50 AM"),
+        "friday": ("9:00 AM", "9:50 AM"),
+    }
+    assert api.parse_day_times(["M=8:00-8:45", "W=13:00-13:50"], []) == {
+        "monday": ("8:00 AM", "8:45 AM"),
+        "wednesday": ("1:00 PM", "1:50 PM"),
+    }
+
+
+def test_set_lesson_normalizes_times_and_marks_them_updated():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026",
+                             start_time="14:30", end_time="15:20",
+                             dry_run=True)["payload"]
+    assert payload["customStart"] == "2:30 PM"
+    assert payload["customEnd"] == "3:20 PM"
+    assert "CUSTOMSTART" in payload["updatedFields"]
+
+
+def test_build_schedule_carries_per_day_times():
+    slot = json.loads(api.build_schedule(
+        ["monday"], "08/31/2026", {"monday": ("9:00 AM", "9:50 AM")}))[0]
+    assert slot["startDay2"] == "9:00 AM"   # teachDay2 is Monday
+    assert slot["endDay2"] == "9:50 AM"
+    assert slot["startDay3"] == ""          # Tuesday, not taught

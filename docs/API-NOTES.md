@@ -139,3 +139,26 @@ command-line use, supporting either the device-code grant or authorization-code
 with PKCE. The infrastructure already exists; only a client registration is
 missing. Note also the issuer is advertised as `http://auth.planbook.com`
 (not https), which is worth flagging to them.
+
+
+## Times
+
+Planbook stores times in 12-hour form only: `"9:00 AM"`. Verified by writing three
+formats to `customStart` and reading them back:
+
+| sent | stored |
+|---|---|
+| `09:00` (24-hour) | `""` - **silently dropped** |
+| `9:00AM` | `9:00 AM` (normalized) |
+| `9:00 AM` | `9:00 AM` |
+
+A 24-hour string is accepted without any error and the time is lost. `parse_time()`
+in `api.py` converts both forms before sending.
+
+Three separate places carry times:
+
+- `updateLesson` -> `customStart` / `customEnd`, overriding the class schedule for
+  that one date.
+- `addEvent` -> `eventStartTime` / `eventEndTime`.
+- the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
+  `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.

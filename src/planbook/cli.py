@@ -319,6 +319,39 @@ def cmd_standards(args: argparse.Namespace) -> None:
     emit(api.standards(client_from(args)))
 
 
+def cmd_simple_read(args: argparse.Namespace) -> None:
+    emit(api.simple_read(client_from(args), args.command, raw=args.raw))
+
+
+def cmd_attachments(args: argparse.Namespace) -> None:
+    token_info = pbtoken.describe(config.load_session())
+    teacher_id = args.teacher_id or token_info.get("account_id")
+    if not teacher_id:
+        raise UsageError("Could not determine a teacher id; pass --teacher-id.")
+    emit(api.attachments(client_from(args), teacher_id=teacher_id))
+
+
+def cmd_events_list(args: argparse.Namespace) -> None:
+    emit(api.list_events(client_from(args), start=args.start or "",
+                         end=args.end or "", limit=args.limit,
+                         search=args.search or ""))
+
+
+def cmd_events_create(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
+    emit(api.create_event(client, title=args.title, date=args.date,
+                          end_date=args.end_date, text=args.text or "",
+                          start_time=args.start_time or "",
+                          end_time=args.end_time or "",
+                          private=args.private, no_school=args.no_school,
+                          dry_run=args.dry_run))
+
+
+def cmd_events_delete(args: argparse.Namespace) -> None:
+    emit(api.delete_event(client_from(args), event_id=args.event_id,
+                          dry_run=args.dry_run))
+
+
 def cmd_endpoints(args: argparse.Namespace) -> None:
     emit([{"path": p, "status": s, "description": d} for p, s, d in ENDPOINTS])
 
@@ -444,6 +477,45 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("standards", help="standards available to the account")
     p.set_defaults(func=cmd_standards)
+    p_ev = sub.add_parser("events", help="list, create and delete calendar events")
+    s_ev = p_ev.add_subparsers(dest="events_command", required=True)
+    e = s_ev.add_parser("list", help="list events")
+    e.add_argument("--start", metavar="MM/DD/YYYY")
+    e.add_argument("--end", metavar="MM/DD/YYYY")
+    e.add_argument("--limit", type=int, default=75)
+    e.add_argument("--search")
+    e.set_defaults(func=cmd_events_list)
+    e = s_ev.add_parser("create", help="create an event")
+    e.add_argument("--title", required=True)
+    e.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    e.add_argument("--end-date", dest="end_date", metavar="MM/DD/YYYY",
+                   help="defaults to --date")
+    e.add_argument("--text", help="description; HTML accepted")
+    e.add_argument("--start-time", dest="start_time")
+    e.add_argument("--end-time", dest="end_time")
+    e.add_argument("--private", action="store_true")
+    e.add_argument("--no-school", dest="no_school", action="store_true",
+                   help="mark as a no-school day")
+    e.add_argument("--dry-run", action="store_true")
+    e.set_defaults(func=cmd_events_create)
+    e = s_ev.add_parser("delete", help="delete an event by id")
+    e.add_argument("event_id")
+    e.add_argument("--dry-run", action="store_true")
+    e.set_defaults(func=cmd_events_delete)
+
+    for name, (path, _unwrap) in api.SIMPLE_READS.items():
+        if name == "events":
+            continue
+        rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
+        rp.add_argument("--raw", action="store_true",
+                        help="print the full response envelope")
+        rp.set_defaults(func=cmd_simple_read)
+
+    p = sub.add_parser("attachments", help="list uploaded resources")
+    p.add_argument("--teacher-id", dest="teacher_id",
+                   help="defaults to the account id in your token")
+    p.set_defaults(func=cmd_attachments)
+
     p = sub.add_parser("endpoints", help="list known API endpoints and how well they are mapped")
     p.set_defaults(func=cmd_endpoints)
 

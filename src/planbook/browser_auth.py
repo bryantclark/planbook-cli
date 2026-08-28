@@ -140,11 +140,42 @@ def login_via_browser(
                 file=sys.stderr,
             )
 
-        page = context.pages[0] if context.pages else context.new_page()
+        # The browser creates its own first page, but not always before
+        # launch() returns. Calling new_page() immediately leaves the user
+        # staring at a stray about:blank while sign-in loads in a second tab,
+        # so wait briefly for the page the browser is already making.
+        page = None
+        for _ in range(20):  # up to ~4s
+            if context.pages:
+                page = context.pages[0]
+                break
+            time.sleep(0.2)
+        if page is None:
+            page = context.new_page()
+
         try:
             page.goto(SIGNIN_URL, timeout=60_000)
         except Exception:
             pass  # a slow or redirected load is not fatal; keep polling
+
+        # Tidy any leftover blank or welcome tabs. This profile is ours alone,
+        # so nothing here belongs to the user.
+        for other in list(context.pages):
+            if other is page:
+                continue
+            try:
+                if other.url in ("about:blank", "") or other.url.startswith((
+                    "chrome://welcome", "brave://welcome", "chrome://new-tab-page",
+                )):
+                    other.close()
+            except Exception:
+                pass
+
+        if not headless:
+            try:
+                page.bring_to_front()
+            except Exception:
+                pass
 
         deadline = time.time() + timeout
         try:

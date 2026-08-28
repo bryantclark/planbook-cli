@@ -1,5 +1,8 @@
 # planbook-cli for agents
 
+Installed as a skill (`skills/planbook/SKILL.md`), an agent should find this tool
+without being told it exists. This file is the full contract behind that skill.
+
 This file is the contract. If you are an agent driving this CLI, everything you need
 is here; you should not need to read the source.
 

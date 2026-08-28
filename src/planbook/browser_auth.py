@@ -24,7 +24,13 @@ from pathlib import Path
 from .config import config_dir
 from .errors import LoginFailed
 
-SIGNIN_URL = "https://app.planbook.com/"
+# Sign in on the auth host, never the app host. app.planbook.com sits behind
+# an AWS WAF that challenges any automated browser (verified: HTTP 405,
+# "Human Verification"). auth.planbook.com has no such protection, and it is
+# where the login form and every SSO button actually live. Routing here is
+# using the unprotected endpoint, not evading the protected one.
+SIGNIN_URL = "https://auth.planbook.com/login"
+API_PROBE = "https://api.planbook.com/getClasses2"
 
 # Channels to try, in order. Real installed browsers first.
 CHANNELS = ("chrome", "msedge", "chromium")
@@ -52,13 +58,19 @@ def login_via_browser(
     timeout: int = 300,
     channel: str | None = None,
     profile: Path | None = None,
-    keep_profile: bool = True,
+    headless: bool = False,
+    quiet: bool = False,
 ) -> str:
     """Open a browser, wait for the user to sign in, return a SESSION cookie.
 
     Polls the cookie jar rather than watching for a particular URL, because
     the sign-in path differs per identity provider and the only thing that
     actually matters is whether the resulting cookie works against the API.
+
+    With `headless`, no window is shown and nobody can interact - only useful
+    once the profile already holds a signed-in session. That is the whole
+    point of keeping the profile: the first sign-in is interactive, every
+    refresh afterwards is silent.
     """
     sync_playwright = _import_playwright()
     from .auth import _works  # local import: avoids a cycle at module load
@@ -77,7 +89,7 @@ def login_via_browser(
             try:
                 context = pw.chromium.launch_persistent_context(
                     str(profile_dir),
-                    headless=False,
+                    headless=headless,
                     channel=candidate if candidate != "chromium" else None,
                     args=["--no-first-run", "--no-default-browser-check"],
                 )
@@ -91,11 +103,12 @@ def login_via_browser(
                 "If you have no Chrome or Edge, run `playwright install chromium`."
             )
 
-        print(
-            "Opening a browser. Sign in to Planbook however you normally do "
-            "(Google is fine).\nThis window closes by itself once you are in.",
-            file=sys.stderr,
-        )
+        if not quiet:
+            print(
+                "Opening a browser. Sign in to Planbook however you normally do "
+                "(Google is fine).\nThis window closes by itself once you are in.",
+                file=sys.stderr,
+            )
 
         page = context.pages[0] if context.pages else context.new_page()
         try:
@@ -106,19 +119,37 @@ def login_via_browser(
         deadline = time.time() + timeout
         try:
             while time.time() < deadline:
-                if not context.pages:
+                if not headless and not context.pages:
                     raise LoginFailed("Browser was closed before sign-in completed.")
-                for cookie in context.cookies():
-                    value = cookie.get("value")
-                    if cookie.get("name") != "SESSION" or not value:
-                        continue
-                    if value in tested:
-                        continue
-                    tested.add(value)
-                    # Only a real API call proves the session is usable; the
-                    # cookie exists before sign-in too.
-                    if _works(value):
-                        return value
+
+                # Ask the API, from inside the browser, using the browser's own
+                # cookie jar. This does two jobs at once: it tells us whether
+                # the sign-in has taken effect, and it makes the server issue
+                # an api-host SESSION cookie if the auth-host session
+                # propagates. Guessing which cookie to try would not do that.
+                try:
+                    resp = context.request.post(API_PROBE, timeout=15_000)
+                    body = resp.json()
+                    signed_in = (
+                        isinstance(body, dict)
+                        and str(body.get("notLoggedIn", "")).lower() != "true"
+                    )
+                except Exception:
+                    signed_in = False
+
+                if signed_in:
+                    for cookie in context.cookies():
+                        value = cookie.get("value")
+                        if cookie.get("name") != "SESSION" or not value:
+                            continue
+                        if value in tested:
+                            continue
+                        tested.add(value)
+                        # Confirm the cookie works on its own, outside the
+                        # browser - that is how the CLI will use it.
+                        if _works(value):
+                            return value
+
                 time.sleep(2)
         finally:
             try:
@@ -130,3 +161,33 @@ def login_via_browser(
         f"No working session appeared within {timeout}s. "
         "Run again with --timeout to allow longer."
     )
+
+
+def refresh_or_login(
+    *,
+    timeout: int = 300,
+    channel: str | None = None,
+    profile: Path | None = None,
+) -> tuple[str, bool]:
+    """Try a silent refresh first, then fall back to interactive sign-in.
+
+    Returns (cookie, was_interactive). The silent attempt is short: if the
+    stored profile still holds a live sign-in, Planbook hands over a session
+    almost immediately, and if it does not there is nothing to wait for.
+    """
+    profile_dir = profile or default_profile_dir()
+    if profile_dir.exists():
+        try:
+            cookie = login_via_browser(
+                timeout=25,
+                channel=channel,
+                profile=profile_dir,
+                headless=True,
+                quiet=True,
+            )
+            return cookie, False
+        except LoginFailed:
+            pass  # profile is stale or empty; fall through to interactive
+    return login_via_browser(
+        timeout=timeout, channel=channel, profile=profile_dir, headless=False
+    ), True

@@ -46,11 +46,18 @@ pip install 'planbook-cli[browser]'
 planbook auth browser
 ```
 
-This opens a real Chrome window, you sign in however you normally do, and the CLI
-takes the session once it works. Your password is never typed into this tool and
-never passes through it. The browser profile is kept at
-`~/.config/planbook/browser-profile` (mode 0700), so the second run usually needs
-no interaction at all.
+This opens a real Chrome window on Planbook's sign-in page. You sign in however
+you normally do; the CLI polls until a session actually works, then closes the
+window. Your password is never typed into this tool and never passes through it.
+
+The browser profile persists at `~/.config/planbook/browser-profile` (mode 0700),
+and it holds your identity provider's session too. So **later runs refresh
+silently and headlessly** - `planbook auth browser` only opens a window when the
+stored sign-in has genuinely expired. `--interactive` forces a window anyway.
+
+Sign-in happens on `auth.planbook.com`, never `app.planbook.com`: the app host is
+behind an AWS WAF that challenges automated browsers, while the auth host is not
+protected and is where the login form and SSO buttons live.
 
 This is not the `gh auth login` pattern of bouncing through your default browser to
 a localhost callback - that requires being a registered OAuth client of the service,

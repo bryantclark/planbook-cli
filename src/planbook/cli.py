@@ -68,14 +68,28 @@ def cmd_auth_cookie(args: argparse.Namespace) -> None:
 
 
 def cmd_auth_browser(args: argparse.Namespace) -> None:
-    """Sign in by opening a browser and waiting for the user to do it."""
-    cookie = browser_auth.login_via_browser(
-        timeout=args.timeout,
-        channel=args.channel,
-        profile=args.profile,
-    )
+    """Sign in by opening a browser and waiting for the user to do it.
+
+    Tries a silent refresh from the stored profile first, so a routine
+    re-auth costs nothing and only a genuinely expired sign-in opens a
+    window. --interactive forces the window.
+    """
+    if args.interactive:
+        cookie = browser_auth.login_via_browser(
+            timeout=args.timeout, channel=args.channel, profile=args.profile
+        )
+        interactive = True
+    else:
+        cookie, interactive = browser_auth.refresh_or_login(
+            timeout=args.timeout, channel=args.channel, profile=args.profile
+        )
     path = config.save_session(cookie)
-    emit({"ok": True, "stored": str(path), "method": "browser"})
+    emit({
+        "ok": True,
+        "stored": str(path),
+        "method": "browser",
+        "interactive": interactive,
+    })
 
 
 def cmd_auth_status(args: argparse.Namespace) -> None:
@@ -257,6 +271,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="which browser to launch; tries chrome, then edge, then chromium")
     a.add_argument("--profile", type=Path,
                    help="browser profile directory (default: alongside the session file)")
+    a.add_argument("--interactive", action="store_true",
+                   help="always open a window; skip the silent refresh attempt")
     a.set_defaults(func=cmd_auth_browser)
     a = s_auth.add_parser("status", help="verify the stored session works")
     a.set_defaults(func=cmd_auth_status)

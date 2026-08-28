@@ -37,16 +37,22 @@ planbook. Surface it to a human.
 
 ```bash
 planbook auth status          # verify the session works; cheap, safe to call first
-planbook auth browser         # opens a browser for a human - NOT for agents
+planbook auth browser         # silent refresh if possible, else opens a window
 planbook auth login           # prompts for a password on a TTY - NOT for agents
 planbook auth cookie          # prompts for a cookie, hidden - NOT for agents
 planbook auth logout
 ```
 
-**Only `auth status` and `auth logout` are safe to run unattended.** The other three
-all need a human: `browser` opens a window and waits, `login` and `cookie` prompt on
-a TTY. If `auth status` exits 77, stop and ask a human to sign in - do not try to
-authenticate yourself.
+`auth status` and `auth logout` are always safe unattended.
+
+`auth browser` is **conditionally** safe: it first tries a silent headless refresh
+from the stored browser profile, and only opens a window if that fails. So on exit
+77 it is reasonable to try `planbook auth browser` once - if the profile is still
+good it succeeds in seconds with `"interactive": false` in its output. If it returns
+`"interactive": true`, a human was involved; if it blocks or fails, stop and ask a
+human.
+
+`auth login` and `auth cookie` always prompt on a TTY. Never run them unattended.
 
 ### Reading
 

@@ -17,9 +17,10 @@ import argparse
 import getpass
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
-from . import __version__, api, auth, config
+from . import __version__, api, auth, browser_auth, config
 from .client import PlanbookClient
 from .endpoints import ENDPOINTS
 from .errors import PlanbookError, UsageError
@@ -64,6 +65,17 @@ def cmd_auth_cookie(args: argparse.Namespace) -> None:
         raise UsageError("No cookie provided.")
     path = config.save_session(value)
     emit({"ok": True, "stored": str(path)})
+
+
+def cmd_auth_browser(args: argparse.Namespace) -> None:
+    """Sign in by opening a browser and waiting for the user to do it."""
+    cookie = browser_auth.login_via_browser(
+        timeout=args.timeout,
+        channel=args.channel,
+        profile=args.profile,
+    )
+    path = config.save_session(cookie)
+    emit({"ok": True, "stored": str(path), "method": "browser"})
 
 
 def cmd_auth_status(args: argparse.Namespace) -> None:
@@ -236,6 +248,16 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("value", nargs="?",
                    help="the SESSION cookie value; prompted for (hidden) if omitted")
     a.set_defaults(func=cmd_auth_cookie)
+    a = s_auth.add_parser(
+        "browser",
+        help="sign in by opening a browser (works with Google and other SSO)")
+    a.add_argument("--timeout", type=int, default=300,
+                   help="seconds to wait for sign-in (default 300)")
+    a.add_argument("--channel", choices=["chrome", "msedge", "chromium"],
+                   help="which browser to launch; tries chrome, then edge, then chromium")
+    a.add_argument("--profile", type=Path,
+                   help="browser profile directory (default: alongside the session file)")
+    a.set_defaults(func=cmd_auth_browser)
     a = s_auth.add_parser("status", help="verify the stored session works")
     a.set_defaults(func=cmd_auth_status)
     a = s_auth.add_parser("logout", help="delete the stored session")

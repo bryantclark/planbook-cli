@@ -37,26 +37,48 @@ Every command prints JSON to stdout, so output pipes straight into `jq` or an ag
 
 ## Authentication
 
-`planbook auth login` performs the same form login as the website and stores the
-resulting `SESSION` cookie in `~/.config/planbook/session.json`, mode 0600.
+Three ways in, in order of convenience.
 
-If your account signs in with Google, Microsoft, Clever, ClassLink, or Apple, the
-form login cannot drive that. Sign in through a browser, copy the `SESSION` cookie,
-and store it directly:
+**Browser sign-in - works with any account, including Google SSO:**
+
+```bash
+pip install 'planbook-cli[browser]'
+planbook auth browser
+```
+
+This opens a real Chrome window, you sign in however you normally do, and the CLI
+takes the session once it works. Your password is never typed into this tool and
+never passes through it. The browser profile is kept at
+`~/.config/planbook/browser-profile` (mode 0700), so the second run usually needs
+no interaction at all.
+
+This is not the `gh auth login` pattern of bouncing through your default browser to
+a localhost callback - that requires being a registered OAuth client of the service,
+and Planbook offers no such thing. A controlled browser window is the closest
+equivalent that can still capture the session automatically.
+
+**Username and password**, for accounts that use Planbook's own login:
+
+```bash
+planbook auth login
+```
+
+**Paste a cookie**, if you would rather not install Playwright:
 
 ```bash
 planbook auth cookie
 ```
 
-It prompts for the value with the input hidden. Pass it as an argument only in a
-script you trust: the cookie is a bearer credential for the whole account, and an
-argument is visible in shell history and in `ps`.
+It prompts with the input hidden. Pass it as an argument only in a script you
+trust: the cookie is a bearer credential for the whole account, and an argument is
+visible in shell history and in `ps`.
 
 Find the value in DevTools: **Application -> Cookies -> `https://api.planbook.com` ->
 `SESSION`**. It is HttpOnly, so it will not show up in `document.cookie`.
 
-`PLANBOOK_SESSION` in the environment overrides the stored file, which is the
-convenient way to run in CI or a container.
+The session is stored at `~/.config/planbook/session.json`, mode 0600.
+`PLANBOOK_SESSION` in the environment overrides it, which is the convenient way to
+run in CI or a container.
 
 ## Caveats worth reading once
 

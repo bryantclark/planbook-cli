@@ -8,6 +8,7 @@ dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "responses>=0.25"]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
 planbook = "planbook.cli:main"

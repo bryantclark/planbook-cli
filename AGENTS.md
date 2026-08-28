@@ -15,7 +15,7 @@ is here; you should not need to read the source.
   | 1 | API reported an error | read `error:` on stderr; usually a bad field value |
   | 64 | usage error | you called it wrong; fix the arguments |
   | 65 | unexpected response shape | the API changed. **Stop.** Do not retry, do not guess |
-  | 77 | not authenticated | session missing or expired; a human must re-auth |
+  | 77 | not authenticated | token missing or expired; **relay the stderr message to the user verbatim** - it names the URL and the command |
   | 130 | interrupted | - |
 
 Exit 65 means the server returned something this tool does not recognise. Retrying
@@ -36,14 +36,21 @@ planbook. Surface it to a human.
 ### Authentication
 
 ```bash
-planbook auth status          # verify the session works; cheap, safe to call first
+planbook auth status          # verify the token works; cheap, safe to call first
+planbook auth import          # read the token from the user's browser
 planbook auth browser         # discouraged; opens its own browser window
 planbook auth login           # prompts for a password on a TTY - NOT for agents
 planbook auth cookie          # prompts for a cookie, hidden - NOT for agents
 planbook auth logout
 ```
 
-`auth status` and `auth logout` are always safe unattended.
+`auth status` and `auth logout` are always safe unattended. So is `auth import`,
+though it may raise a macOS Keychain prompt the user has to approve.
+
+**Tokens last about 22 hours.** On exit 77, the stderr message already contains
+the full remedy - a sign-in URL and the exact command. Show it to the user rather
+than paraphrasing, then run `planbook auth import` once they say they have signed
+in. Do not try to sign in yourself.
 
 `auth browser` is **conditionally** safe: it first tries a silent headless refresh
 from the stored browser profile, and only opens a window if that fails. So on exit

@@ -21,7 +21,7 @@ from typing import Any
 import requests
 
 from . import __version__
-from .errors import ApiError, NotAuthenticated, SchemaDrift
+from .errors import SIGN_IN_HELP, ApiError, NotAuthenticated, SchemaDrift
 
 API_BASE = "https://api.planbook.com"
 AUTH_BASE = "https://auth.planbook.com"
@@ -60,6 +60,18 @@ class PlanbookClient:
         self.http.headers["User-Agent"] = USER_AGENT
         self.http.headers["Authorization"] = f"Bearer {token}"
 
+        # The token carries its own expiry, so a stale one can be caught here
+        # rather than spending a round trip to be told the same thing.
+        from . import token as _token
+
+        if _token.is_expired(token):
+            info = _token.describe(token)
+            when = info.get("expires_in_hours")
+            ago = f" (expired {abs(when)}h ago)" if isinstance(when, (int, float)) and when else ""
+            raise NotAuthenticated(
+                f"Your Planbook token has expired{ago}." + SIGN_IN_HELP
+            )
+
     def post(self, path: str, data: dict[str, Any] | None = None) -> Any:
         """POST a form-encoded request and return the decoded body."""
         url = f"{API_BASE}/{path.lstrip('/')}"
@@ -92,8 +104,8 @@ class PlanbookClient:
         if isinstance(body, dict):
             if str(body.get("notLoggedIn", "")).lower() == "true":
                 raise NotAuthenticated(
-                    "Token rejected or expired. Run `planbook auth token` "
-                    "to store a fresh one."
+                    "Your Planbook token was rejected - it has probably expired "
+                    "(they last about 22 hours)." + SIGN_IN_HELP
                 )
             if str(body.get("error", "")).lower() == "true":
                 raise ApiError(body.get("msg") or f"{url} reported an unspecified error")

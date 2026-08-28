@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from .errors import NotAuthenticated
+from .errors import SIGN_IN_HELP, NotAuthenticated
 
 APP_NAME = "planbook"
 TOKEN_ENV = "PLANBOOK_TOKEN"
@@ -42,10 +42,7 @@ def load_session() -> str:
         return env.strip()
     path = session_path()
     if not path.exists():
-        raise NotAuthenticated(
-            "No stored token. Run `planbook auth token`, "
-            f"or set {TOKEN_ENV} to a Planbook access token."
-        )
+        raise NotAuthenticated("Not signed in." + SIGN_IN_HELP)
     try:
         data = json.loads(path.read_text())
         return data["token"]

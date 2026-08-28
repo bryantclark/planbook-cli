@@ -147,11 +147,14 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
 
     report = browser_cookies.diagnose()
     lines = "\n".join(f"  {b:8} {status}" for b, status in report.items())
+    from .errors import SIGN_IN_URL
+
     raise UsageError(
         "No usable Planbook token found in any local browser.\n" + lines + "\n\n"
-        "If a browser says 'locked', macOS denied Keychain access - rerun and "
-        "choose Allow. Otherwise sign in to Planbook in your browser first, "
-        "then run this again."
+        f"Sign in at {SIGN_IN_URL} first, then run `planbook auth import` again.\n"
+        "If a browser above says 'locked', macOS denied Keychain access - rerun "
+        "and choose Always Allow.\n"
+        "If you would rather not grant that, use `planbook auth token` instead."
     )
 
 

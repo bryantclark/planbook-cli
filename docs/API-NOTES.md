@@ -98,3 +98,44 @@ reverse-engineering clause. Relevant: "No Resale of Service" (broad, aimed at re
 no forging headers to disguise origin; they reserve rate limits; termination at sole
 discretion for violating the "spirit" of the ToS. Risk is account termination, not legal.
 Use an honest User-Agent, serialize requests, own account only.
+
+## OAuth2 / OIDC (auth.planbook.com)
+
+Planbook runs a Spring Authorization Server with full discovery at
+`https://auth.planbook.com/.well-known/openid-configuration`:
+
+```
+authorization_endpoint         /oauth2/authorize
+device_authorization_endpoint  /oauth2/device_authorization
+token_endpoint                 /oauth2/token
+jwks_uri                       /oauth2/jwks
+userinfo_endpoint              /userinfo
+grant_types_supported          authorization_code, client_credentials,
+                               refresh_token, device_code
+scopes_supported               openid
+```
+
+The device-code grant is advertised, which is the standard "open your default
+browser and sign in" pattern used by CLIs like `glab` and `gh`.
+
+**It is not usable by a CLI today, for two specific reasons:**
+
+1. `token_endpoint_auth_methods_supported` lists only `client_secret_basic`,
+   `client_secret_post`, `client_secret_jwt`, `private_key_jwt`. There is no
+   `none`, so **public clients are not supported**. A CLI cannot hold a client
+   secret safely.
+2. `code_challenge_methods_supported` is absent, so **PKCE is not advertised** -
+   the mechanism that lets a public client use the authorization-code flow safely.
+
+Both `/oauth2/authorize` and `/oauth2/device_authorization` 302 to `/login` when
+unauthenticated, so client validation cannot be probed from outside.
+
+This server is evidently built for Planbook's confidential partner integrations,
+not for third-party CLIs. `glab` can do browser sign-in because GitLab registered
+a client id for it; the same is required here.
+
+**Concrete ask for support@planbook.com:** register a public OAuth client for
+command-line use, supporting either the device-code grant or authorization-code
+with PKCE. The infrastructure already exists; only a client registration is
+missing. Note also the issuer is advertised as `http://auth.planbook.com`
+(not https), which is worth flagging to them.

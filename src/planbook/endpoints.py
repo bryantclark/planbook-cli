@@ -1,31 +1,62 @@
 """Registry of every endpoint observed on the wire.
 
-`status` is what this CLI knows, not what Planbook supports:
+`status` describes what this CLI knows, not what Planbook supports:
 
-  mapped    request and response are both understood and wrapped in a command
+  mapped    request and response understood, wrapped in a command, and
+            exercised against a live account
   partial   the call works, the response shape is not fully decoded
   observed  seen in browser traffic, not yet wired up - reach it with `raw`
 
-Anything not listed here may still exist. `planbook raw` will POST to any
-path, which is the honest way to cover an API nobody has documented.
+Anything not listed may still exist. `planbook raw` will POST to any path,
+which is the honest way to cover an API nobody has documented.
 """
 
 ENDPOINTS = [
+    # Classes
     ("/getClasses2", "mapped", "Classes, current year id, lesson banks"),
-    ("/updateLesson", "mapped", "Upsert a lesson by class + date"),
+    ("/getClass", "mapped", "One class by id"),
     ("/addClass", "mapped", "Create a class"),
+    ("/updateClass/v10", "mapped", "Update a class; needs scheduleChange=true"),
+    ("/deleteClass", "mapped", "Delete a class and all of its lessons"),
+    # Lessons
+    ("/updateLesson", "mapped", "Upsert a lesson by class + date"),
+    ("/deleteLesson", "mapped", "Clear the lesson on one date"),
+    ("/getLessonsEvents", "partial", "Lessons+events by week; `days` shape undecoded"),
+    ("/copyLesson", "observed", "Copy lessons (yearId, sharedYearId, subjectIds)"),
+    ("/bumpLesson", "observed", "Bump/shift lessons"),
+    # Units
+    ("/getUnits", "mapped", "Units"),
+    ("/updateUnit", "mapped", "Add/update/delete a unit via action=A|U|D"),
+    # Events
+    ("/getEvents", "mapped", "Events, filterable by date window"),
+    ("/addEvent", "mapped", "Create an event; verifyShift=false to commit"),
+    ("/deleteEvent", "mapped", "Delete an event; echo the whole record back"),
+    ("/updateEvent", "observed", "Update an event"),
     ("/getSpecialDays", "mapped", "Holidays / non-teaching days"),
+    # To-dos and notes
+    ("/getToDos", "mapped", "To-dos (classId=all for everything)"),
+    ("/updateToDo", "mapped", "Add/update/delete a to-do via action=A|U|D"),
+    ("/services/planbook/newNote/filterNotes", "observed", "Notes; filter args unmapped"),
+    ("/addNote", "observed", "Create a note"),
+    ("/updateNote", "observed", "Update a note"),
+    # Other reads
     ("/getSettings", "partial", "Account and display settings"),
     ("/getStandards", "partial", "Standards available to the account"),
-    ("/getLessonsEvents", "partial", "Lessons+events by week; `days` shape undecoded"),
-    ("/getAssignments", "observed", "Assignments"),
-    ("/getAssessments", "observed", "Assessments"),
-    ("/getCommentsTo", "observed", "Comments addressed to the user"),
-    ("/getAttachmentList", "observed", "Attachments (teacherId, isFolderStructured, withAllFolders)"),
-    ("/services/planbook/template/get", "observed", "Lesson templates"),
+    ("/getStandardsReport", "partial", "Standards coverage report"),
+    ("/getAssignments", "mapped", "Assignments"),
+    ("/getAssessments", "mapped", "Assessments"),
+    ("/getSchools", "mapped", "Schools"),
+    ("/getCommentsTo", "mapped", "Comments addressed to the user"),
+    ("/getAttachmentList", "mapped", "Uploaded resources"),
+    ("/services/planbook/template/get", "observed", "Lesson templates; needs args"),
+    ("/services/planbook/student/getAllFromSchool", "observed", "Students"),
+    ("/services/planbook/unarchiveYear/getUnarchivalStatus", "observed", "Year unarchival"),
+    ("/services/planbook/googleclassroom", "observed", "Google Classroom link"),
+    ("/connectServlet", "observed", "Third-party connect flow"),
+    # Gated
     ("/services/api/stickers", "observed", "Stickers"),
     ("/services/api/referencedata/maintenanceData", "observed", "Reference data"),
-    ("/services/api/feature-flags", "observed", "Feature flags - requires an API key"),
-    ("/services/api/global-vars", "observed", "Global vars - requires an API key"),
+    ("/services/api/feature-flags", "observed", "Feature flags - needs an API key"),
+    ("/services/api/global-vars", "observed", "Global vars - needs an API key"),
     ("/services/planbook/oneRosterClient/getAllRosteredItems", "observed", "OneRoster sync"),
 ]

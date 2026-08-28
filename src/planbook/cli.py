@@ -389,6 +389,41 @@ def cmd_units_delete(args: argparse.Namespace) -> None:
                          dry_run=args.dry_run))
 
 
+def cmd_classes_delete(args: argparse.Namespace) -> None:
+    if not args.yes:
+        raise UsageError(
+            "Deleting a class also deletes every lesson in it, permanently. "
+            "Pass --yes to confirm."
+        )
+    emit(api.delete_class(client_from(args), class_id=args.class_id))
+
+
+def cmd_lessons_delete(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
+    emit(api.delete_lesson(client, class_id=args.class_id, date=args.date,
+                           dry_run=args.dry_run))
+
+
+def cmd_todos_list(args: argparse.Namespace) -> None:
+    emit(api.list_todos(client_from(args), class_id=args.class_id or "all"))
+
+
+def cmd_todos_create(args: argparse.Namespace) -> None:
+    emit(api.create_todo(client_from(args), text=args.text, start=args.start,
+                         due=args.due or "", priority=args.priority,
+                         done=args.done))
+
+
+def cmd_todos_update(args: argparse.Namespace) -> None:
+    emit(api.update_todo(client_from(args), todo_id=args.todo_id, text=args.text,
+                         start=args.start, due=args.due or "",
+                         priority=args.priority, done=args.done))
+
+
+def cmd_todos_delete(args: argparse.Namespace) -> None:
+    emit(api.delete_todo(client_from(args), todo_id=args.todo_id))
+
+
 def cmd_endpoints(args: argparse.Namespace) -> None:
     emit([{"path": p, "status": s, "description": d} for p, s, d in ENDPOINTS])
 
@@ -484,6 +519,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--description")
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
+    c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
+    c.add_argument("class_id")
+    c.add_argument("--yes", action="store_true",
+                   help="required: confirms the lessons go too")
+    c.set_defaults(func=cmd_classes_delete)
     c = s_cls.add_parser("get", help="fetch one class by id")
     c.add_argument("class_id")
     c.set_defaults(func=cmd_classes_get)
@@ -510,6 +550,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="continue after a failed item instead of stopping")
     l.add_argument("--dry-run", action="store_true")
     l.set_defaults(func=cmd_lessons_bulk)
+    l = s_les.add_parser("delete", help="clear the lesson on one date")
+    l.add_argument("--class-id", dest="class_id", required=True)
+    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    l.add_argument("--dry-run", action="store_true")
+    l.set_defaults(func=cmd_lessons_delete)
     l = s_les.add_parser("week", help="fetch a week of lessons and events (partial mapping)")
     l.add_argument("--monday", required=True, metavar="MM/DD/YYYY")
     l.add_argument("--weeks", type=int, default=1)
@@ -528,6 +573,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("standards", help="standards available to the account")
     p.set_defaults(func=cmd_standards)
+    p_td = sub.add_parser("todos", help="list, create, update and delete to-dos")
+    s_td = p_td.add_subparsers(dest="todos_command", required=True)
+    t = s_td.add_parser("list", help="list to-dos")
+    t.add_argument("--class-id", dest="class_id", help="defaults to all classes")
+    t.set_defaults(func=cmd_todos_list)
+    for verb, fn in (("create", cmd_todos_create), ("update", cmd_todos_update)):
+        t = s_td.add_parser(verb, help=f"{verb} a to-do")
+        if verb == "update":
+            t.add_argument("--todo-id", dest="todo_id", required=True)
+        t.add_argument("--text", required=True, help="HTML accepted")
+        t.add_argument("--start", required=True, metavar="MM/DD/YYYY")
+        t.add_argument("--due", metavar="MM/DD/YYYY", help="defaults to --start")
+        t.add_argument("--priority", choices=["low", "medium", "high"],
+                       default="low")
+        t.add_argument("--done", action="store_true")
+        t.set_defaults(func=fn)
+    t = s_td.add_parser("delete", help="delete a to-do")
+    t.add_argument("todo_id")
+    t.set_defaults(func=cmd_todos_delete)
+
     p_un = sub.add_parser("units", help="list, create, update and delete units")
     s_un = p_un.add_subparsers(dest="units_command", required=True)
     u = s_un.add_parser("list", help="list units")
@@ -578,7 +643,7 @@ def build_parser() -> argparse.ArgumentParser:
     e.set_defaults(func=cmd_events_delete)
 
     for name, (path, _unwrap) in api.SIMPLE_READS.items():
-        if name in ("events", "units"):
+        if name in ("events", "units", "todos"):
             continue
         rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
         rp.add_argument("--raw", action="store_true",

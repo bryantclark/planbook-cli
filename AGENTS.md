@@ -33,7 +33,22 @@ planbook. Surface it to a human.
 
 ## Commands
 
+Run `planbook <group> --help` for exact flags. Groups:
+
+| group | what it does |
+|---|---|
+| `auth` | `status`, `import`, `token`, `browser`, `logout` |
+| `classes` | `list`, `get`, `create`, `update`, `delete` |
+| `lessons` | `set`, `bulk`, `delete`, `week` |
+| `units` | `list`, `create`, `update`, `delete` |
+| `events` | `list`, `create`, `delete` |
+| `todos` | `list`, `create`, `update`, `delete` |
+| reads | `assignments`, `assessments`, `schools`, `templates`, `notes`, `students`, `standards`, `standards-report`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| `raw` | POST to any endpoint |
+| `endpoints` | what is mapped and what is not |
+
 ### Authentication
+
 
 ```bash
 planbook auth status          # verify the token works; cheap, safe to call first
@@ -138,7 +153,14 @@ for anything `planbook endpoints` lists as `observed`. Field conventions still a
 These come from the server's own behaviour, not from style preference:
 
 - **Booleans are the strings `Y` and `N`**, not `true`/`false`. The wrapped commands
-  handle this; `raw` does not.
+  handle this; `raw` does not. Sending `true`/`false` to the class endpoints is
+  accepted and silently produces a class that teaches on no days.
+- **`verifyShift=true` means "check, do not commit."** Events and classes accept it,
+  answer exactly like success, and write nothing. Commit with `false`.
+- **`scheduleChange=true` is required** when updating a class, or the rename lands
+  and the new schedule is discarded.
+- **`teachDay1` is Sunday**, not Monday, in the class schedule JSON.
+- **`subjectId` means class id** on the unit endpoints, and nowhere else.
 - **Integer fields must be `0` when absent, never `""`.** An empty string triggers a
   server-side Java `NullPointerException` returned as a 200. Again, `raw` does not
   handle this for you.

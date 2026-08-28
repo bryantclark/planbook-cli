@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
-from .errors import UsageError
+from .errors import SchemaDrift, UsageError
 
 # Planbook's single-letter day prefixes. `r` is Thursday and `u` is Sunday -
 # both are the second letter of their name, not the first.
@@ -222,6 +222,27 @@ def get_class(client: PlanbookClient, class_id: Any) -> Any:
     return client.post("/getClass", {"classId": intish(class_id)})
 
 
+def delete_class(client: PlanbookClient, *, class_id: Any) -> dict[str, Any]:
+    """Delete a class and every lesson in it. There is no undo."""
+    client.post("/deleteClass", {"classId": intish(class_id)})
+    return {"ok": True, "deleted_class_id": intish(class_id)}
+
+
+def delete_lesson(
+    client: PlanbookClient | None,
+    *,
+    class_id: Any,
+    date: str,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Clear the lesson for one class on one date."""
+    payload = {"classId": intish(class_id), "customDate": date, "userMode": "T"}
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/deleteLesson", "payload": payload}
+    client.post("/deleteLesson", payload)
+    return {"ok": True, "class_id": payload["classId"], "date": date}
+
+
 def set_lesson(
     client: PlanbookClient | None,
     *,
@@ -335,7 +356,6 @@ def standards(client: PlanbookClient) -> Any:
 #
 #   name -> (path, required-fields-builder or None, response key to unwrap)
 SIMPLE_READS: dict[str, tuple[str, str | None]] = {
-    "todos": ("/getToDos", None),
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
     "schools": ("/getSchools", "schools"),
@@ -623,3 +643,88 @@ def delete_unit(
         return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
     client.post("/updateUnit", payload)
     return {"ok": True, "deleted_unit_id": payload["unitId"]}
+
+
+# ---------------------------------------------------------------------------
+# To-dos
+#
+# Creating one takes two calls, which is how the web app does it: action "A"
+# mints an empty row and returns its id, then action "U" fills it in. There
+# is no single-shot create.
+
+TODO_PRIORITIES = {"low": "1", "medium": "2", "high": "3"}
+
+
+def list_todos(client: PlanbookClient, *, class_id: str = "all") -> Any:
+    body = client.post("/getToDos", {"classId": class_id})
+    if isinstance(body, dict) and set(body) == {"toDos"}:
+        return body["toDos"]
+    return body
+
+
+def _todo_payload(
+    *,
+    todo_id: Any,
+    text: str,
+    start: str,
+    due: str,
+    priority: str,
+    done: bool,
+) -> dict[str, str]:
+    return {
+        "startDate": start,
+        "dueDate": due or start,
+        "toDoText": text,
+        "priority": TODO_PRIORITIES.get(priority, priority),
+        "done": "1" if done else "0",
+        "toDoId": intish(todo_id),
+        "repeats": "daily",
+        "currentDate": "",
+        "updateCurrentTodo": "false",
+        "action": "U",
+    }
+
+
+def create_todo(
+    client: PlanbookClient,
+    *,
+    text: str,
+    start: str,
+    due: str = "",
+    priority: str = "low",
+    done: bool = False,
+) -> dict[str, Any]:
+    created = client.post("/updateToDo", {"action": "A"})
+    todo_id = None
+    if isinstance(created, dict):
+        todo_id = created.get("toDoId")
+    if not todo_id:
+        raise SchemaDrift(
+            "Creating a to-do did not return a toDoId. "
+            f"Response was: {created!r}"
+        )
+    payload = _todo_payload(todo_id=todo_id, text=text, start=start, due=due,
+                            priority=priority, done=done)
+    client.post("/updateToDo", payload)
+    return {"ok": True, "todo_id": todo_id, "text": text}
+
+
+def update_todo(
+    client: PlanbookClient,
+    *,
+    todo_id: Any,
+    text: str,
+    start: str,
+    due: str = "",
+    priority: str = "low",
+    done: bool = False,
+) -> dict[str, Any]:
+    client.post("/updateToDo", _todo_payload(
+        todo_id=todo_id, text=text, start=start, due=due,
+        priority=priority, done=done))
+    return {"ok": True, "todo_id": intish(todo_id)}
+
+
+def delete_todo(client: PlanbookClient, *, todo_id: Any) -> dict[str, Any]:
+    client.post("/updateToDo", {"toDoId": intish(todo_id), "action": "D"})
+    return {"ok": True, "deleted_todo_id": intish(todo_id)}

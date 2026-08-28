@@ -1,0 +1,243 @@
+"""Sign in by driving a real browser window.
+
+The form login in `auth.py` only handles Planbook's own username/password.
+Accounts that sign in with Google, Microsoft, Clever, ClassLink, or Apple
+cannot be driven that way - and should not be, since it would mean handling
+somebody else's identity provider credentials.
+
+So this does the honest thing: it opens a browser, hands it to the person at
+the keyboard, and waits. The human signs in however their account works. We
+never see the password. When a working `SESSION` cookie appears in the jar,
+we take that and close the window.
+
+Chrome is launched by channel rather than using Playwright's bundled
+Chromium, for two reasons: no 150MB browser download, and identity providers
+routinely refuse to complete OAuth in a bundled automation browser.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+
+from .config import config_dir
+from .default_browser import (
+    default_browser_name,
+    default_chromium_executable,
+)
+from .errors import LoginFailed
+
+# The app host mints the access token, so sign-in has to end up there.
+# A headed browser loads it fine; only headless is challenged by the WAF
+# (verified: headed Brave 200, headless 405 "Human Verification"). That is
+# why interactive sign-in works and silent headless refresh may not.
+SIGNIN_URL = "https://app.planbook.com/"
+API_PROBE = "https://api.planbook.com/getClasses2"
+
+# The browser carries the credential as a cookie named `U|<view-id>|.accesstoken`.
+# The view id varies per session and the server does not validate it, so match
+# on the suffix.
+TOKEN_COOKIE_SUFFIX = ".accesstoken"
+
+# Channels to try, in order. Real installed browsers first.
+CHANNELS = ("chrome", "msedge", "chromium")
+
+
+def default_profile_dir() -> Path:
+    return config_dir() / "browser-profile"
+
+
+def _import_playwright():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise LoginFailed(
+            "Browser sign-in needs Playwright, which is not installed.\n"
+            "  pip install 'planbook-cli[browser]'\n"
+            "Alternatively, copy the SESSION cookie out of your browser's "
+            "DevTools and run `planbook auth cookie`."
+        ) from exc
+    return sync_playwright
+
+
+def login_via_browser(
+    *,
+    timeout: int = 300,
+    channel: str | None = None,
+    profile: Path | None = None,
+    headless: bool = False,
+    quiet: bool = False,
+) -> str:
+    """Open a browser, wait for the user to sign in, return a SESSION cookie.
+
+    Polls the cookie jar rather than watching for a particular URL, because
+    the sign-in path differs per identity provider and the only thing that
+    actually matters is whether the resulting cookie works against the API.
+
+    With `headless`, no window is shown and nobody can interact - only useful
+    once the profile already holds a signed-in session. That is the whole
+    point of keeping the profile: the first sign-in is interactive, every
+    refresh afterwards is silent.
+    """
+    sync_playwright = _import_playwright()
+    from .auth import _works  # local import: avoids a cycle at module load
+
+    profile_dir = profile or default_profile_dir()
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir.chmod(0o700)
+
+    tested: set[str] = set()
+
+    # Prefer whatever browser the user actually uses. Their identity provider
+    # session lives there, and a sign-in window that is not the browser they
+    # recognise is its own small hazard.
+    preferred: list[tuple[str, dict]] = []
+    if not channel:
+        found = default_chromium_executable()
+        if found:
+            name, executable = found
+            preferred.append((name, {"executable_path": executable}))
+    channels = (channel,) if channel else CHANNELS
+    for candidate in channels:
+        preferred.append((
+            candidate,
+            {} if candidate == "chromium" else {"channel": candidate},
+        ))
+
+    with sync_playwright() as pw:
+        context = None
+        last_error: Exception | None = None
+        launched = None
+        for label, launch_kwargs in preferred:
+            try:
+                context = pw.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    headless=headless,
+                    args=["--no-first-run", "--no-default-browser-check"],
+                    **launch_kwargs,
+                )
+                launched = label
+                break
+            except Exception as exc:  # not installed on this machine
+                last_error = exc
+        if context is None:
+            tried = ", ".join(label for label, _ in preferred)
+            hint = ""
+            name = default_browser_name()
+            if name and not default_chromium_executable():
+                hint = (
+                    f"\nYour default browser is {name}, which is not Chromium-based "
+                    "and cannot be driven here. A Chromium browser (Chrome, Brave, "
+                    "Edge) is needed, or use `planbook auth cookie` instead."
+                )
+            raise LoginFailed(
+                f"Could not launch a browser (tried {tried}). "
+                f"Last error: {last_error}{hint}\n"
+                "You can also run `playwright install chromium`."
+            )
+
+        if not quiet:
+            print(
+                f"Opening {launched}. Sign in to Planbook however you normally do "
+                "(Google is fine).\nThis window closes by itself once you are in.",
+                file=sys.stderr,
+            )
+
+        # The browser creates its own first page, but not always before
+        # launch() returns. Calling new_page() immediately leaves the user
+        # staring at a stray about:blank while sign-in loads in a second tab,
+        # so wait briefly for the page the browser is already making.
+        page = None
+        for _ in range(20):  # up to ~4s
+            if context.pages:
+                page = context.pages[0]
+                break
+            time.sleep(0.2)
+        if page is None:
+            page = context.new_page()
+
+        try:
+            page.goto(SIGNIN_URL, timeout=60_000)
+        except Exception:
+            pass  # a slow or redirected load is not fatal; keep polling
+
+        # Tidy any leftover blank or welcome tabs. This profile is ours alone,
+        # so nothing here belongs to the user.
+        for other in list(context.pages):
+            if other is page:
+                continue
+            try:
+                if other.url in ("about:blank", "") or other.url.startswith((
+                    "chrome://welcome", "brave://welcome", "chrome://new-tab-page",
+                )):
+                    other.close()
+            except Exception:
+                pass
+
+        if not headless:
+            try:
+                page.bring_to_front()
+            except Exception:
+                pass
+
+        deadline = time.time() + timeout
+        try:
+            while time.time() < deadline:
+                if not headless and not context.pages:
+                    raise LoginFailed("Browser was closed before sign-in completed.")
+
+                for cookie in context.cookies():
+                    name = cookie.get("name") or ""
+                    value = cookie.get("value")
+                    if not value or not name.endswith(TOKEN_COOKIE_SUFFIX):
+                        continue
+                    if value in tested:
+                        continue
+                    tested.add(value)
+                    # Confirm it works standalone, as the CLI will use it:
+                    # a Bearer header with no cookies and no browser.
+                    if _works(value):
+                        return value
+
+                time.sleep(2)
+        finally:
+            try:
+                context.close()
+            except Exception:
+                pass
+
+    raise LoginFailed(
+        f"No working session appeared within {timeout}s. "
+        "Run again with --timeout to allow longer."
+    )
+
+
+def refresh_or_login(
+    *,
+    timeout: int = 300,
+    channel: str | None = None,
+    profile: Path | None = None,
+) -> tuple[str, bool]:
+    """Try a silent refresh first, then fall back to interactive sign-in.
+
+    Returns (cookie, was_interactive). The silent attempt is short: if the
+    stored profile still holds a live sign-in, Planbook hands over a session
+    almost immediately, and if it does not there is nothing to wait for.
+    """
+    profile_dir = profile or default_profile_dir()
+    if profile_dir.exists():
+        try:
+            cookie = login_via_browser(
+                timeout=25,
+                channel=channel,
+                profile=profile_dir,
+                headless=True,
+                quiet=True,
+            )
+            return cookie, False
+        except LoginFailed:
+            pass  # profile is stale or empty; fall through to interactive
+    return login_via_browser(
+        timeout=timeout, channel=channel, profile=profile_dir, headless=False
+    ), True

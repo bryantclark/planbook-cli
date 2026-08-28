@@ -37,18 +37,32 @@ Every command prints JSON to stdout, so output pipes straight into `jq` or an ag
 
 ## Authentication
 
-**Paste a session cookie.** This is the supported path, and the one to use.
+**Import from your browser.** The recommended path.
 
 ```bash
-planbook auth cookie
+planbook auth import
 ```
 
-It prompts with the input hidden, so the cookie stays out of your shell history
-and out of `ps`. To find the value, see "Getting your session cookie" below.
+Sign in to Planbook in your normal browser - normal window, normal Google
+session - then run that. It reads the one cookie it needs out of your browser's
+cookie store, verifies it, and stores it.
 
-The session is stored at `~/.config/planbook/session.json`, mode 0600.
-`PLANBOOK_SESSION` in the environment overrides it, which is how to run in CI or a
-container.
+Nothing is automated and no browser is driven, which is the point: Google
+rejects OAuth inside automation-controlled browsers ("this browser or app may
+not be secure"), and this sidesteps that entirely by not being one.
+
+macOS gates the cookie store behind the Keychain, so the first run raises a
+prompt. That prompt is the consent boundary and it is meant to be there; choose
+**Always Allow** to make later runs silent.
+
+**Paste a token**, if you would rather not grant Keychain access:
+
+```bash
+planbook auth token
+```
+
+It accepts the bare JWT, a whole `Cookie:` header, or an entire "Copy as cURL"
+paste, and verifies before storing. See "Getting your token by hand" below.
 
 **Username and password**, for accounts using Planbook's own login rather than SSO:
 
@@ -56,14 +70,17 @@ container.
 planbook auth login
 ```
 
-**Browser sign-in** (`planbook auth browser`, needs the `[browser]` extra) exists but
-is not recommended. It has to launch its own browser window with its own profile,
-because the credential is a cookie that can only be read from a browser this tool
-controls - it cannot use your everyday window. That makes it clumsier than pasting.
-It is kept for the day Planbook registers an OAuth client, which would replace it
-with a proper redirect flow. See docs/API-NOTES.md.
+**Browser sign-in** (`planbook auth browser`) drives its own browser window. It is
+kept for completeness but is not recommended: Google and other identity providers
+refuse to sign in inside an automated browser.
 
-## Getting your session cookie
+The token is stored at `~/.config/planbook/token.json`, mode 0600.
+`PLANBOOK_TOKEN` in the environment overrides it, which is how to run in CI.
+
+**Tokens last about 22 hours.** There is no refresh endpoint, so re-running
+`planbook auth import` is the daily ritual - one command, no copying.
+
+## Getting your token by hand
 
 Sign in to Planbook in your normal browser, then:
 
@@ -72,18 +89,14 @@ Sign in to Planbook in your normal browser, then open DevTools:
 1. **Network** tab, type `api.planbook.com` in the filter box
 2. reload the page, click the **`getClasses2`** request
 3. right-click it -> **Copy** -> **Copy as cURL**
-4. run `planbook auth cookie` and paste the whole thing
+4. run `planbook auth token` and paste the whole thing
 
-`auth cookie` pulls the `SESSION` value out of whatever you paste - the bare
-value, a full `Cookie:` header, or an entire cURL command - and verifies it
-against the API before storing, so a bad paste fails immediately.
+**The credential is the cookie named `U|<view-id>|.accesstoken`, not `SESSION`.**
+`api.planbook.com` issues a `SESSION` to unauthenticated callers too, so DevTools
+shows a convincing decoy beside the real thing. Copy-as-cURL avoids the whole
+problem: a request that actually succeeded cannot be carrying the wrong credential.
 
-Copy-as-cURL is recommended over reading the cookie store because
-`api.planbook.com` issues an **anonymous** `SESSION` to unauthenticated callers.
-DevTools' Application tab will happily show you that one, and it looks identical
-to the real thing. A request that actually succeeded cannot carry the wrong one.
-
-The cookie is HttpOnly, so it will not appear in `document.cookie`.
+Both cookies are HttpOnly, so neither appears in `document.cookie`.
 
 It expires eventually. When commands start exiting 77, repeat these steps.
 

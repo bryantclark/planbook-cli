@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Agent-oriented CLI for Planbook.com (unofficial)"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["requests>=2.31"]
+dependencies = ["requests>=2.31", "browser-cookie3>=0.19"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "responses>=0.25"]

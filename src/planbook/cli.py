@@ -24,6 +24,7 @@ from typing import Any
 import os
 
 from . import __version__, api, auth, browser_auth, config
+from . import browser_cookies
 from . import token as pbtoken
 from .client import PlanbookClient
 from .endpoints import ENDPOINTS
@@ -109,6 +110,49 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
         "email": info.get("email"),
         "expires_in_hours": info.get("expires_in_hours"),
     })
+
+
+def cmd_auth_import(args: argparse.Namespace) -> None:
+    """Read the access token from a browser the user is already signed in to.
+
+    The recommended path. Nothing is automated, so no identity provider gets
+    suspicious, and there is nothing to copy by hand.
+    """
+    from .default_browser import default_browser_name
+
+    preferred = args.browser
+    if not preferred:
+        name = default_browser_name()
+        if name:
+            preferred = name.split()[0].lower()
+
+    for browser, candidate in browser_cookies.search(preferred):
+        if pbtoken.is_expired(candidate):
+            continue
+        client = PlanbookClient(candidate, verbose=args.verbose)
+        try:
+            api.list_classes(client)
+        except Exception:
+            continue  # stale token from an old sign-in
+        info = pbtoken.describe(candidate)
+        path = config.save_session(candidate, info.get("email"))
+        emit({
+            "ok": True,
+            "stored": str(path),
+            "source": browser,
+            "email": info.get("email"),
+            "expires_in_hours": info.get("expires_in_hours"),
+        })
+        return
+
+    report = browser_cookies.diagnose()
+    lines = "\n".join(f"  {b:8} {status}" for b, status in report.items())
+    raise UsageError(
+        "No usable Planbook token found in any local browser.\n" + lines + "\n\n"
+        "If a browser says 'locked', macOS denied Keychain access - rerun and "
+        "choose Allow. Otherwise sign in to Planbook in your browser first, "
+        "then run this again."
+    )
 
 
 def cmd_auth_browser(args: argparse.Namespace) -> None:
@@ -311,6 +355,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--username", help="email or user ID; prompted for if omitted")
     a.set_defaults(func=cmd_auth_login)
     # "cookie" kept as an alias: it is in older docs and in muscle memory.
+    a = s_auth.add_parser(
+        "import", help="read the token from a browser you are signed in to")
+    a.add_argument("--browser", choices=list(browser_cookies.KNOWN_BROWSERS),
+                   help="which browser to read; defaults to yours, then the rest")
+    a.set_defaults(func=cmd_auth_import)
     a = s_auth.add_parser("token", aliases=["cookie"],
                           help="store an access token from a signed-in browser")
     a.add_argument("value", nargs="?",

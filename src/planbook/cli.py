@@ -194,11 +194,17 @@ def cmd_classes_create(args: argparse.Namespace) -> None:
 
 def cmd_classes_update(args: argparse.Namespace) -> None:
     days = api.parse_days(args.days) if args.days else None
+    if args.time and any("=" not in spec for spec in args.time) and days is None:
+        raise UsageError(
+            "A bare --time needs --days to know which days it applies to. "
+            "Use --time M=9:00-9:50 to set one day without changing the schedule."
+        )
     emit(api.update_class(
         client_from(args), class_id=args.class_id, name=args.name,
         start_date=args.start, end_date=args.end, days=days,
         color=args.color, description=args.description,
-        times=api.parse_day_times(args.time, days or [])))
+        times=api.parse_day_times(args.time, days) if args.time else None,
+        dry_run=args.dry_run))
 
 
 def cmd_classes_get(args: argparse.Namespace) -> None:
@@ -455,8 +461,17 @@ def cmd_raw(args: argparse.Namespace) -> None:
 # --------------------------------------------------------------------------
 
 
+class _Parser(argparse.ArgumentParser):
+    """Exits 64 on a bad command line, as AGENTS.md promises."""
+
+    def error(self, message: str) -> None:  # pragma: no cover - argparse path
+        self.print_usage(sys.stderr)
+        print(f"error: {message}", file=sys.stderr)
+        raise SystemExit(UsageError.exit_code)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="planbook",
         description="Unofficial CLI for Planbook.com. Prints JSON on stdout.",
         epilog="Docs: AGENTS.md for agent usage, docs/API-NOTES.md for the API itself.",
@@ -464,7 +479,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"planbook-cli {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="log each request to stderr")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.set_defaults(_parser_class=_Parser)
+    sub = parser.add_subparsers(dest="command", required=True,
+                                parser_class=_Parser)
 
     p_auth = sub.add_parser("auth", help="sign in and inspect the stored session")
     s_auth = p_auth.add_subparsers(dest="auth_command", required=True)
@@ -534,8 +551,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--color")
     c.add_argument("--description")
     c.add_argument("--time", action="append", default=[], metavar="SPEC",
-                   help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
-                        "for one day; repeatable")
+                   help="class time: 9:00-9:50 for every day in --days, or "
+                        "M=9:00-9:50 for one day; repeatable")
+    c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
     c.add_argument("class_id")

@@ -70,14 +70,14 @@ the full remedy - a sign-in URL and the exact command. Show it to the user rathe
 than paraphrasing, then run `planbook auth import` once they say they have signed
 in. Do not try to sign in yourself.
 
-`auth browser` is **conditionally** safe: it first tries a silent headless refresh
-from the stored browser profile, and only opens a window if that fails. So on exit
-77 it is reasonable to try `planbook auth browser` once - if the profile is still
-good it succeeds in seconds with `"interactive": false` in its output. If it returns
-`"interactive": true`, a human was involved; if it blocks or fails, stop and ask a
-human.
+`auth import` is safe to try once on exit 77: it reads the token from a browser the
+user is already signed in to. It may raise a macOS Keychain prompt the user has to
+approve, and it fails cleanly if no browser holds a usable token.
 
-`auth login` and `auth cookie` always prompt on a TTY. Never run them unattended.
+`auth browser`, `auth login` and `auth token` all need a human - `browser` opens a
+window and waits, the other two prompt on a TTY. Never run them unattended. There is
+no silent refresh: the token is minted on a WAF-protected host that only a headed
+browser reaches.
 
 ### Reading
 

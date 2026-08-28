@@ -19,6 +19,17 @@ def class_wire_record(teach_days=("m", "t", "w", "r", "f")):
     return raw
 
 
+def _schedule_row(teach=(), start_times=None, end_times=None, **extra):
+    """One classSchedule row as /getClass returns it: 20 Sunday-indexed slots."""
+    row = {"scheduleStart": "08/31/2026", "additionalClassDays": [], "scheduleId": 9}
+    for n in range(1, 21):
+        row[f"day{n}Teach"] = n in teach
+        row[f"day{n}StartTime"] = (start_times or {}).get(n, "")
+        row[f"day{n}EndTime"] = (end_times or {}).get(n, "")
+    row.update(extra)
+    return row
+
+
 def test_parse_days_weekdays_and_special_letters():
     assert api.parse_days("MTWRF") == ["monday", "tuesday", "wednesday", "thursday", "friday"]
     assert api.parse_days("RU") == ["thursday", "sunday"]
@@ -74,6 +85,8 @@ def test_update_class_preserves_fields_it_was_not_asked_to_change():
         "thursdayTeach": "N", "fridayTeach": "Y", "saturdayTeach": "N",
         "sundayTeach": "N",
         "mondayStartTime": "09:00", "mondayEndTime": "10:00",
+        "classSchedule": [_schedule_row(teach=(2, 4, 6),
+                                        start_times={2: "9:00 AM"})],
     })
     responses.post(f"{API_BASE}/updateClass/v10", json={})
 
@@ -88,7 +101,7 @@ def test_update_class_preserves_fields_it_was_not_asked_to_change():
     # schedule survives untouched, times included
     assert [sent[f"{d}Teach"] for d in ("monday", "wednesday", "friday")] == ["Y"] * 3
     assert sent["tuesdayTeach"] == "N"
-    assert json.loads(sent["schedules"])[0]["startDay2"] == "09:00"
+    assert json.loads(sent["schedules"])[0]["startDay2"] == "9:00 AM"
     # and the flags that make the write actually land
     assert sent["scheduleChange"] == "true"
     assert sent["verifyShift"] == "false"
@@ -101,6 +114,7 @@ def test_update_class_replaces_schedule_when_days_given():
         "classEndDate": "06/06/2027", "mondayTeach": "Y", "wednesdayTeach": "Y",
         "fridayTeach": "Y", "tuesdayTeach": "N", "thursdayTeach": "N",
         "saturdayTeach": "N", "sundayTeach": "N",
+        "classSchedule": [_schedule_row(teach=(2, 4, 6))],
     })
     responses.post(f"{API_BASE}/updateClass/v10", json={})
     api.update_class(PlanbookClient("t.t.t"), class_id=5, days=["tuesday", "thursday"])
@@ -278,3 +292,54 @@ def test_set_lesson_writes_arbitrary_sections():
     assert payload["lessonText"] == "a"
     assert payload["tab4Text"] == "b"
     assert "TAB4TEXT" in payload["updatedFields"]
+
+
+@responses.activate
+def test_update_class_preserves_rotation_slots_beyond_the_week():
+    # A 10-day rotation must survive a rename. Rebuilding from a blank
+    # template would flatten it into an ordinary week, silently.
+    responses.post(f"{API_BASE}/getClass", json={
+        "className": "Bio", "classStartDate": "08/31/2026",
+        "classEndDate": "06/06/2027",
+        "classSchedule": [_schedule_row(teach=(2, 9, 10),
+                                        start_times={9: "1:00 PM"},
+                                        additionalClassDays=[{"x": 1}])],
+    })
+    responses.post(f"{API_BASE}/updateClass/v10", json={})
+    api.update_class(PlanbookClient("t.t.t"), class_id=5, name="Bio 2")
+    slot = json.loads(dict(urllib.parse.parse_qsl(
+        responses.calls[1].request.body))["schedules"])[0]
+    assert slot["teachDay9"] is True and slot["teachDay10"] is True
+    assert slot["startDay9"] == "1:00 PM"
+    assert slot["additionalClassDays"] == [{"x": 1}]
+    assert slot["scheduleId"] == 9
+
+
+@responses.activate
+def test_update_class_refuses_a_response_without_a_schedule():
+    # Coercing a missing schedule to defaults would zero the teaching days.
+    responses.post(f"{API_BASE}/getClass", json={"className": "Bio"})
+    with pytest.raises(SchemaDrift):
+        api.update_class(PlanbookClient("t.t.t"), class_id=5, name="Bio 2")
+
+
+@responses.activate
+def test_update_class_keeps_earlier_schedule_rows_untouched():
+    responses.post(f"{API_BASE}/getClass", json={
+        "className": "Bio", "classStartDate": "08/31/2026",
+        "classSchedule": [_schedule_row(teach=(2,), scheduleStart="08/31/2026"),
+                          _schedule_row(teach=(4,), scheduleStart="01/05/2027")],
+    })
+    responses.post(f"{API_BASE}/updateClass/v10", json={})
+    api.update_class(PlanbookClient("t.t.t"), class_id=5, days=["friday"])
+    rows = json.loads(dict(urllib.parse.parse_qsl(
+        responses.calls[1].request.body))["schedules"])
+    assert rows[0]["teachDay2"] is True     # history untouched
+    assert rows[1]["teachDay6"] is True     # newest row edited to Friday
+    assert rows[1]["teachDay4"] is False
+
+
+def test_set_lesson_requires_both_times_together():
+    with pytest.raises(UsageError):
+        api.set_lesson(None, class_id=1, date="09/01/2026",
+                       start_time="9:00", dry_run=True)

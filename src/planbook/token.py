@@ -60,15 +60,17 @@ def claims(token: str) -> dict[str, Any]:
 def describe(token: str) -> dict[str, Any]:
     """Who the token is for and how long it lasts."""
     data = claims(token)
-    sub = data.get("sub") or {}
+    sub = data.get("sub")
+    if not isinstance(sub, dict):
+        sub = {}
     expires_at = data.get("exp")
     remaining = None
     if isinstance(expires_at, (int, float)):
         remaining = max(0, int(expires_at - time.time()))
     return {
-        "account_id": sub.get("id") if isinstance(sub, dict) else None,
-        "email": sub.get("email") if isinstance(sub, dict) else None,
-        "year_id": sub.get("yearId") if isinstance(sub, dict) else None,
+        "account_id": sub.get("id"),
+        "email": sub.get("email"),
+        "year_id": sub.get("yearId"),
         "expires_at": expires_at,
         "expires_in_seconds": remaining,
         "expires_in_hours": round(remaining / 3600, 1) if remaining is not None else None,

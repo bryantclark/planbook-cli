@@ -12,7 +12,7 @@ import re
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
-from .errors import SchemaDrift, UsageError
+from .errors import PlanbookError, SchemaDrift, UsageError
 
 # Single-letter day prefixes: `r` is Thursday and `u` is Sunday - the second
 # letter of the name, not the first.
@@ -63,7 +63,8 @@ def parse_time(value: str | None) -> str:
     return f"{hour}:{minute:02d} {suffix}"
 
 
-def parse_day_times(specs: list[str], days: list[str]) -> dict[str, tuple[str, str]]:
+def parse_day_times(specs: list[str],
+                    days: list[str] | None) -> dict[str, tuple[str, str]]:
     """Read --time values into {day: (start, end)}.
 
     Accepts "9:00-9:50" (every teaching day) or "M=9:00-9:50" (one day).
@@ -78,7 +79,12 @@ def parse_day_times(specs: list[str], days: list[str]) -> dict[str, tuple[str, s
             )
         start, _, end = window.partition("-")
         pair = (parse_time(start), parse_time(end))
-        for day in (parse_days(target) if target else days):
+        if not target and days is None:
+            raise UsageError(
+                f"--time {spec!r} applies to every teaching day, but no days "
+                "were given. Name a day (M=9:00-9:50) or pass --days."
+            )
+        for day in (parse_days(target) if target else days or []):
             times[day] = pair
     return times
 
@@ -96,8 +102,13 @@ def parse_days(spec: str) -> list[str]:
     return days
 
 
-def normalize_class(raw: dict[str, Any]) -> dict[str, Any]:
+def normalize_class(raw: Any) -> dict[str, Any]:
     """Map one wire-format class record to readable keys."""
+    if not isinstance(raw, dict):
+        raise SchemaDrift(
+            f"Expected a class object, got {type(raw).__name__}. "
+            "The API shape may have changed."
+        )
     schedule = {}
     for day, prefix in DAY_PREFIXES.items():
         # "Y"/"N" strings: a raw "N" is truthy in Python and would read as
@@ -128,9 +139,12 @@ def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]
     client.require(body, "classes", "currentYearId", where="getClasses2")
     if raw:
         return body
+    records = body.get("classes") or []
+    if not isinstance(records, list):
+        raise SchemaDrift("getClasses2 returned a non-list `classes`.")
     return {
         "current_year_id": body.get("currentYearId"),
-        "classes": [normalize_class(c) for c in body.get("classes") or []],
+        "classes": [normalize_class(c) for c in records],
         "lesson_banks": body.get("lessonBanks"),
         "district_lesson_banks": body.get("districtLessonBanks"),
     }
@@ -151,9 +165,53 @@ SCHEDULE_DAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday",
 SCHEDULE_SLOTS = 20
 
 
+def edit_schedule(
+    existing: list[dict[str, Any]],
+    *,
+    days: list[str] | None,
+    times: dict[str, tuple[str, str]] | None,
+) -> str:
+    """Rebuild the `schedules` JSON from what the server already has.
+
+    `getClass` returns `classSchedule` with all twenty rotation slots, plus
+    `additionalClassDays` and any extra schedule rows a mid-year change
+    created. Rebuilding from a blank template would flatten a rotating
+    schedule into a plain week - silently, on something as innocent as a
+    rename - so the existing rows are carried through and only the weekday
+    slots the caller actually named are touched.
+    """
+    rows = []
+    for index, row in enumerate(existing):
+        slot: dict[str, Any] = {
+            "scheduleStart": row.get("scheduleStart", ""),
+            "additionalClassDays": row.get("additionalClassDays", []),
+        }
+        if "scheduleId" in row:
+            slot["scheduleId"] = row["scheduleId"]
+        last = index == len(existing) - 1
+        for n in range(1, SCHEDULE_SLOTS + 1):
+            day = SCHEDULE_DAY_ORDER[n - 1] if n <= len(SCHEDULE_DAY_ORDER) else None
+            teaches = bool(row.get(f"day{n}Teach"))
+            start = row.get(f"day{n}StartTime") or ""
+            end = row.get(f"day{n}EndTime") or ""
+            # Only the most recent row is edited; earlier rows are history.
+            if last and day is not None:
+                if days is not None:
+                    teaches = day in days
+                if times and day in times:
+                    start, end = times[day]
+                if not teaches:
+                    start = end = ""
+            slot[f"teachDay{n}"] = teaches
+            slot[f"startDay{n}"] = start
+            slot[f"endDay{n}"] = end
+        rows.append(slot)
+    return json.dumps(rows, separators=(",", ":"))
+
+
 def build_schedule(days: list[str], start_date: str,
                    times: dict[str, tuple[str, str]] | None = None) -> str:
-    """Build the `schedules` JSON the class endpoints expect."""
+    """Build a fresh `schedules` JSON for a new class."""
     times = times or {}
     slot: dict[str, Any] = {"scheduleStart": start_date, "additionalClassDays": []}
     for index in range(1, SCHEDULE_SLOTS + 1):
@@ -253,6 +311,7 @@ def update_class(
     color: str | None = None,
     description: str | None = None,
     times: dict[str, tuple[str, str]] | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Update a class, changing only what you pass.
 
@@ -270,18 +329,25 @@ def update_class(
             f"getClass({class_id}) did not return a class record. "
             "Cannot update without reading the current values first."
         )
+    schedule_rows = current.get("classSchedule")
+    if not isinstance(schedule_rows, list) or not schedule_rows:
+        raise SchemaDrift(
+            f"getClass({class_id}) returned no classSchedule. Updating without "
+            "it would erase the class's teaching days."
+        )
 
     def flag(value: Any) -> str:
         if isinstance(value, bool):
             return yn(value)
         return yn(str(value).upper() == "Y")
 
-    current_days = [d for d in DAY_ORDER if flag(current.get(f"{d}Teach")) == "Y"]
-    current_times = {
-        d: (current.get(f"{d}StartTime") or "", current.get(f"{d}EndTime") or "")
-        for d in DAY_ORDER
-    }
-    current_times.update(times or {})
+    # The schedule rows are authoritative for which days are taught; the
+    # scalar <day>Teach fields are a flattened view of the latest row.
+    latest = schedule_rows[-1]
+    current_days = [
+        day for n, day in enumerate(SCHEDULE_DAY_ORDER, start=1)
+        if latest.get(f"day{n}Teach")
+    ]
     new_days = days if days is not None else current_days
     start = start_date or current.get("classStartDate") or ""
 
@@ -314,13 +380,15 @@ def update_class(
         "updateNoClass": yn(True),
         "shiftLessons": "false",
         "userMode": "T",
-        "schedules": build_schedule(new_days, start, current_times),
+        "schedules": edit_schedule(schedule_rows, days=days, times=times),
         "scheduleChange": "true",
         "verifyShift": "false",
     }
     for day in DAY_ORDER:
         payload[f"{day}Teach"] = yn(day in new_days)
 
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateClass/v10", "payload": payload}
     client.post("/updateClass/v10", payload)
     return {"ok": True, "class_id": payload["classId"],
             "name": payload["className"], "days": new_days}
@@ -380,7 +448,12 @@ def set_lesson(
         updated.append("HOMEWORKTEXT")
     if notes is not None:
         updated.append("NOTESTEXT")
-    if start_time is not None or end_time is not None:
+    if (start_time is None) != (end_time is None):
+        raise UsageError(
+            "Pass --start-time and --end-time together. The server stores them "
+            "as a pair, so sending one alone clears the other."
+        )
+    if start_time is not None:
         updated.extend(["CUSTOMSTART", "CUSTOMEND"])
     section_text = dict(sections or {})
     for index in section_text:
@@ -866,7 +939,16 @@ def create_todo(
         )
     payload = _todo_payload(todo_id=todo_id, text=text, start=start, due=due,
                             priority=priority, done=done, repeats=repeats)
-    client.post("/updateToDo", payload)
+    try:
+        client.post("/updateToDo", payload)
+    except PlanbookError:
+        # Step one already created an empty row. Leaving it behind would put
+        # a blank to-do in the user's list with no sign of where it came from.
+        try:
+            delete_todo(client, todo_id=todo_id)
+        except PlanbookError:
+            pass
+        raise
     return {"ok": True, "todo_id": todo_id, "text": text}
 
 

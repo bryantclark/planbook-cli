@@ -51,9 +51,18 @@ def cmd_auth_login(args: argparse.Namespace) -> None:
 def cmd_auth_cookie(args: argparse.Namespace) -> None:
     """Store a SESSION cookie copied out of a signed-in browser.
 
-    The way in for SSO accounts, which the form login cannot drive.
+    The way in for SSO accounts (Google, Microsoft, Clever, ClassLink,
+    Apple), which the form login cannot drive.
+
+    Prompts when the value is omitted. Prefer that: the cookie is a bearer
+    credential for the whole account, and passing it as an argument leaves
+    it in shell history and in the process list.
     """
-    path = config.save_session(args.value.strip())
+    value = args.value or getpass.getpass("SESSION cookie: ")
+    value = value.strip()
+    if not value:
+        raise UsageError("No cookie provided.")
+    path = config.save_session(value)
     emit({"ok": True, "stored": str(path)})
 
 
@@ -224,7 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--username", help="email or user ID; prompted for if omitted")
     a.set_defaults(func=cmd_auth_login)
     a = s_auth.add_parser("cookie", help="store a SESSION cookie from a browser (SSO accounts)")
-    a.add_argument("value", help="the SESSION cookie value")
+    a.add_argument("value", nargs="?",
+                   help="the SESSION cookie value; prompted for (hidden) if omitted")
     a.set_defaults(func=cmd_auth_cookie)
     a = s_auth.add_parser("status", help="verify the stored session works")
     a.set_defaults(func=cmd_auth_status)

@@ -45,8 +45,15 @@ form login cannot drive that. Sign in through a browser, copy the `SESSION` cook
 and store it directly:
 
 ```bash
-planbook auth cookie <SESSION-value>
+planbook auth cookie
 ```
+
+It prompts for the value with the input hidden. Pass it as an argument only in a
+script you trust: the cookie is a bearer credential for the whole account, and an
+argument is visible in shell history and in `ps`.
+
+Find the value in DevTools: **Application -> Cookies -> `https://api.planbook.com` ->
+`SESSION`**. It is HttpOnly, so it will not show up in `document.cookie`.
 
 `PLANBOOK_SESSION` in the environment overrides the stored file, which is the
 convenient way to run in CI or a container.

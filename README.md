@@ -37,55 +37,48 @@ Every command prints JSON to stdout, so output pipes straight into `jq` or an ag
 
 ## Authentication
 
-Three ways in, in order of convenience.
-
-**Browser sign-in - works with any account, including Google SSO:**
-
-```bash
-pip install 'planbook-cli[browser]'
-planbook auth browser
-```
-
-This opens **your default browser** on Planbook's sign-in page - Brave, Chrome, Edge, Arc, Vivaldi, whichever handles `https://` on your machine. Firefox and Safari are not Chromium-based and cannot be driven; if one of those is your default, the CLI says so and falls back to Chrome. `--channel` overrides. You sign in however
-you normally do; the CLI polls until a session actually works, then closes the
-window. Your password is never typed into this tool and never passes through it.
-
-The browser profile persists at `~/.config/planbook/browser-profile` (mode 0700),
-and it holds your identity provider's session too. So **later runs refresh
-silently and headlessly** - `planbook auth browser` only opens a window when the
-stored sign-in has genuinely expired. `--interactive` forces a window anyway.
-
-Sign-in happens on `auth.planbook.com`, never `app.planbook.com`: the app host is
-behind an AWS WAF that challenges automated browsers, while the auth host is not
-protected and is where the login form and SSO buttons live.
-
-This is not the `gh auth login` pattern of bouncing through your default browser to
-a localhost callback - that requires being a registered OAuth client of the service,
-and Planbook offers no such thing. A controlled browser window is the closest
-equivalent that can still capture the session automatically.
-
-**Username and password**, for accounts that use Planbook's own login:
-
-```bash
-planbook auth login
-```
-
-**Paste a cookie**, if you would rather not install Playwright:
+**Paste a session cookie.** This is the supported path, and the one to use.
 
 ```bash
 planbook auth cookie
 ```
 
-It prompts with the input hidden. Pass it as an argument only in a script you
-trust: the cookie is a bearer credential for the whole account, and an argument is
-visible in shell history and in `ps`.
-
-Find the value in DevTools: **Application -> Cookies -> `https://api.planbook.com` ->
-`SESSION`**. It is HttpOnly, so it will not show up in `document.cookie`.
+It prompts with the input hidden, so the cookie stays out of your shell history
+and out of `ps`. To find the value, see "Getting your session cookie" below.
 
 The session is stored at `~/.config/planbook/session.json`, mode 0600.
-`PLANBOOK_SESSION` in the environment overrides it, which is the convenient way to
-run in CI or a container.
+`PLANBOOK_SESSION` in the environment overrides it, which is how to run in CI or a
+container.
+
+**Username and password**, for accounts using Planbook's own login rather than SSO:
+
+```bash
+planbook auth login
+```
+
+**Browser sign-in** (`planbook auth browser`, needs the `[browser]` extra) exists but
+is not recommended. It has to launch its own browser window with its own profile,
+because the credential is a cookie that can only be read from a browser this tool
+controls - it cannot use your everyday window. That makes it clumsier than pasting.
+It is kept for the day Planbook registers an OAuth client, which would replace it
+with a proper redirect flow. See docs/API-NOTES.md.
+
+## Getting your session cookie
+
+Sign in to Planbook in your normal browser, then:
+
+**Reliable method - Network tab.** Open DevTools, go to **Network**, reload the page,
+and click any request to `api.planbook.com`. Under **Request Headers**, copy the
+value after `Cookie: SESSION=`. This shows exactly what the API host receives, which
+is what the CLI needs.
+
+**Alternative - Application tab.** DevTools -> **Application** -> **Cookies** ->
+`https://api.planbook.com` -> `SESSION`. If that origin is not listed, load your
+planbook first so the app calls the API, then look again.
+
+The cookie is HttpOnly, so it will not appear in `document.cookie`.
+
+It expires eventually. When commands start exiting 77, repeat these steps.
 
 ## Caveats worth reading once
 

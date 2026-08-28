@@ -37,7 +37,7 @@ planbook. Surface it to a human.
 
 ```bash
 planbook auth status          # verify the session works; cheap, safe to call first
-planbook auth browser         # silent refresh if possible, else opens a window
+planbook auth browser         # discouraged; opens its own browser window
 planbook auth login           # prompts for a password on a TTY - NOT for agents
 planbook auth cookie          # prompts for a cookie, hidden - NOT for agents
 planbook auth logout

@@ -10,7 +10,6 @@ from .errors import SIGN_IN_HELP, NotAuthenticated
 
 APP_NAME = "planbook"
 TOKEN_ENV = "PLANBOOK_TOKEN"
-SESSION_ENV = TOKEN_ENV  # backwards-compatible alias
 
 
 def config_dir() -> Path:
@@ -45,8 +44,11 @@ def load_session() -> str:
         raise NotAuthenticated("Not signed in." + SIGN_IN_HELP)
     try:
         data = json.loads(path.read_text())
-        return data["token"]
-    except (ValueError, KeyError) as exc:
+        token = data["token"]
+        if not isinstance(token, str) or not token:
+            raise ValueError("`token` is not a non-empty string")
+        return token
+    except (ValueError, KeyError, TypeError, OSError) as exc:
         raise NotAuthenticated(f"Token file at {path} is unreadable: {exc}") from exc
 
 

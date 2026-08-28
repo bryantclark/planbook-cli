@@ -27,20 +27,38 @@ planbook. Surface it to a human.
 - **Dates are always `MM/DD/YYYY`.** Not ISO. `09/03/2026`.
 - **Day specs are letters**: `M T W R F S U`. **R is Thursday, U is Sunday.**
   So a normal weekday class is `MTWRF`.
+- **Times are 12-hour on the wire** ("9:00 AM"). The CLI accepts 24-hour too
+  (`14:30`) and converts. Passing 24-hour straight to `raw` is silently stored as
+  empty, losing the time.
 - **Lesson text accepts HTML.** `<p>...</p>` renders as you would expect. Plain text
   works too.
 - Class ids are integers, returned as `id` by `classes list`.
 
 ## Commands
 
+Run `planbook <group> --help` for exact flags. Groups:
+
+| group | what it does |
+|---|---|
+| `auth` | `status`, `import`, `token`, `browser`, `logout` |
+| `classes` | `list`, `get`, `create`, `update`, `delete` |
+| `lessons` | `set`, `bulk`, `delete`, `week` |
+| `units` | `list`, `create`, `update`, `delete` |
+| `events` | `list`, `create`, `delete` |
+| `todos` | `list`, `create`, `update`, `delete` |
+| reads | `assignments`, `assessments`, `schools`, `templates`, `notes`, `students`, `standards`, `standards-report`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| `raw` | POST to any endpoint |
+| `endpoints` | what is mapped and what is not |
+
 ### Authentication
+
 
 ```bash
 planbook auth status          # verify the token works; cheap, safe to call first
 planbook auth import          # read the token from the user's browser
 planbook auth browser         # discouraged; opens its own browser window
 planbook auth login           # prompts for a password on a TTY - NOT for agents
-planbook auth cookie          # prompts for a cookie, hidden - NOT for agents
+planbook auth token           # stores a pasted token - NOT for agents
 planbook auth logout
 ```
 
@@ -52,14 +70,14 @@ the full remedy - a sign-in URL and the exact command. Show it to the user rathe
 than paraphrasing, then run `planbook auth import` once they say they have signed
 in. Do not try to sign in yourself.
 
-`auth browser` is **conditionally** safe: it first tries a silent headless refresh
-from the stored browser profile, and only opens a window if that fails. So on exit
-77 it is reasonable to try `planbook auth browser` once - if the profile is still
-good it succeeds in seconds with `"interactive": false` in its output. If it returns
-`"interactive": true`, a human was involved; if it blocks or fails, stop and ask a
-human.
+`auth import` is safe to try once on exit 77: it reads the token from a browser the
+user is already signed in to. It may raise a macOS Keychain prompt the user has to
+approve, and it fails cleanly if no browser holds a usable token.
 
-`auth login` and `auth cookie` always prompt on a TTY. Never run them unattended.
+`auth browser`, `auth login` and `auth token` all need a human - `browser` opens a
+window and waits, the other two prompt on a TTY. Never run them unattended. There is
+no silent refresh: the token is minted on a WAF-protected host that only a headed
+browser reaches.
 
 ### Reading
 
@@ -87,7 +105,31 @@ output as raw, and do not build logic on its internals.
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" \
   --text "<p>Chloroplasts and the light reactions.</p>" \
+  [--start-time 14:30] [--end-time 15:20] \
   [--homework "Read ch. 4"] [--notes "Lab groups of 3"] [--dry-run]
+```
+
+A lesson has **six** text sections, not three. Sections 1-3 are Lesson, Homework
+and Notes; 4-6 are named by the account's lesson layout and are "Not Used" until
+configured. Run `planbook lessons sections` to see the labels, then write any of
+them by number or label:
+
+```bash
+planbook lessons sections
+planbook lessons set --class-id N --date D --section "Objectives=<p>...</p>" --section "4=..."
+```
+
+Lesson times override the class's usual schedule for that day. Bulk items accept
+`start_time` and `end_time` too.
+
+Class schedule times:
+
+```bash
+planbook classes create --name "Biology 1" --start 08/31/2026 --end 06/06/2027 \
+  --days MWF --time "M=8:00-8:45" --time "W=13:00-13:50" --time "F=9:15-10:05"
+
+# or one window for every teaching day
+planbook classes create ... --days MTWRF --time 9:00-9:50
 ```
 
 **`lessons set` is an upsert keyed on class + date.** Writing the same date twice
@@ -138,7 +180,14 @@ for anything `planbook endpoints` lists as `observed`. Field conventions still a
 These come from the server's own behaviour, not from style preference:
 
 - **Booleans are the strings `Y` and `N`**, not `true`/`false`. The wrapped commands
-  handle this; `raw` does not.
+  handle this; `raw` does not. Sending `true`/`false` to the class endpoints is
+  accepted and silently produces a class that teaches on no days.
+- **`verifyShift=true` means "check, do not commit."** Events and classes accept it,
+  answer exactly like success, and write nothing. Commit with `false`.
+- **`scheduleChange=true` is required** when updating a class, or the rename lands
+  and the new schedule is discarded.
+- **`teachDay1` is Sunday**, not Monday, in the class schedule JSON.
+- **`subjectId` means class id** on the unit endpoints, and nowhere else.
 - **Integer fields must be `0` when absent, never `""`.** An empty string triggers a
   server-side Java `NullPointerException` returned as a 200. Again, `raw` does not
   handle this for you.
@@ -153,10 +202,20 @@ These come from the server's own behaviour, not from style preference:
 3. `--dry-run` first on anything generated, to see the exact payload.
 4. Then write.
 
+## Destructive commands
+
+These delete data with no undo. Confirm with the user before running them.
+
+- `classes delete <id> --yes` - removes the class **and every lesson in it**. The
+  `--yes` flag is required.
+- `lessons delete --class-id N --date D` - clears one lesson.
+- `events delete <id>` - removes the **whole repeating series** by default; pass
+  `--occurrence-only` for just that date.
+- `units delete`, `todos delete` - remove one record.
+
 ## Things this tool will not do
 
-- Delete a class or a lesson. Not mapped; do it in the web UI.
-- Grades, attendance, students, seating charts, units, templates, lesson banks,
-  messages, reporting. Observed or untouched. `raw` may reach some of them.
-- Drive `app.planbook.com`. That host sits behind an AWS WAF and this tool does not
-  go near it.
+- Grades, attendance, seating charts, lesson banks, messages, reporting. Not mapped;
+  `planbook endpoints` shows what `raw` might reach.
+- Notes and templates are listed but need arguments that are not yet mapped.
+- Sign you in. Every auth path needs a human.

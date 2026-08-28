@@ -1,18 +1,12 @@
 """Sign in by driving a real browser window.
 
-The form login in `auth.py` only handles Planbook's own username/password.
-Accounts that sign in with Google, Microsoft, Clever, ClassLink, or Apple
-cannot be driven that way - and should not be, since it would mean handling
-somebody else's identity provider credentials.
+`auth.py` only handles Planbook's own username/password; SSO accounts
+(Google, Microsoft, Clever, ClassLink, Apple) cannot and should not be driven
+that way. So this opens a browser, lets the human sign in, and takes the
+access token once one appears in the jar. We never see the password.
 
-So this does the honest thing: it opens a browser, hands it to the person at
-the keyboard, and waits. The human signs in however their account works. We
-never see the password. When a working `SESSION` cookie appears in the jar,
-we take that and close the window.
-
-Chrome is launched by channel rather than using Playwright's bundled
-Chromium, for two reasons: no 150MB browser download, and identity providers
-routinely refuse to complete OAuth in a bundled automation browser.
+Chrome is launched by channel rather than Playwright's bundled Chromium: no
+150MB download, and identity providers refuse OAuth in an automation browser.
 """
 
 from __future__ import annotations
@@ -28,19 +22,15 @@ from .default_browser import (
 )
 from .errors import LoginFailed
 
-# The app host mints the access token, so sign-in has to end up there.
-# A headed browser loads it fine; only headless is challenged by the WAF
-# (verified: headed Brave 200, headless 405 "Human Verification"). That is
-# why interactive sign-in works and silent headless refresh may not.
+# The app host mints the access token, so sign-in must end up there. The WAF
+# challenges headless only (headed Brave 200, headless 405), which is why
+# interactive sign-in works and a silent headless refresh may not.
 SIGNIN_URL = "https://app.planbook.com/"
-API_PROBE = "https://api.planbook.com/getClasses2"
-
-# The browser carries the credential as a cookie named `U|<view-id>|.accesstoken`.
-# The view id varies per session and the server does not validate it, so match
-# on the suffix.
+# The cookie is `U|<view-id>|.accesstoken`; the view id varies per session, so
+# match on the suffix.
 TOKEN_COOKIE_SUFFIX = ".accesstoken"
 
-# Channels to try, in order. Real installed browsers first.
+# Fallback launch channels, in order.
 CHANNELS = ("chrome", "msedge", "chromium")
 
 
@@ -55,8 +45,8 @@ def _import_playwright():
         raise LoginFailed(
             "Browser sign-in needs Playwright, which is not installed.\n"
             "  pip install 'planbook-cli[browser]'\n"
-            "Alternatively, copy the SESSION cookie out of your browser's "
-            "DevTools and run `planbook auth cookie`."
+            "Prefer `planbook auth import`, which reads the token from a "
+            "browser you are already signed in to and needs no extra install."
         ) from exc
     return sync_playwright
 
@@ -69,16 +59,12 @@ def login_via_browser(
     headless: bool = False,
     quiet: bool = False,
 ) -> str:
-    """Open a browser, wait for the user to sign in, return a SESSION cookie.
+    """Open a browser, wait for the user to sign in, return an access token.
 
-    Polls the cookie jar rather than watching for a particular URL, because
-    the sign-in path differs per identity provider and the only thing that
-    actually matters is whether the resulting cookie works against the API.
-
-    With `headless`, no window is shown and nobody can interact - only useful
-    once the profile already holds a signed-in session. That is the whole
-    point of keeping the profile: the first sign-in is interactive, every
-    refresh afterwards is silent.
+    Polls the cookie jar rather than watching for a URL: the sign-in path
+    differs per identity provider, and all that matters is whether the token
+    works. `headless` cannot be interacted with, so it only pays off once the
+    stored profile already holds a signed-in session.
     """
     sync_playwright = _import_playwright()
     from .auth import _works  # local import: avoids a cycle at module load
@@ -89,9 +75,8 @@ def login_via_browser(
 
     tested: set[str] = set()
 
-    # Prefer whatever browser the user actually uses. Their identity provider
-    # session lives there, and a sign-in window that is not the browser they
-    # recognise is its own small hazard.
+    # Prefer the user's own browser: their identity provider session lives
+    # there, and an unfamiliar sign-in window is its own small hazard.
     preferred: list[tuple[str, dict]] = []
     if not channel:
         found = default_chromium_executable()
@@ -144,10 +129,8 @@ def login_via_browser(
                 file=sys.stderr,
             )
 
-        # The browser creates its own first page, but not always before
-        # launch() returns. Calling new_page() immediately leaves the user
-        # staring at a stray about:blank while sign-in loads in a second tab,
-        # so wait briefly for the page the browser is already making.
+        # The browser makes its own first page, but not always before launch()
+        # returns; calling new_page() now would leave a stray about:blank tab.
         page = None
         for _ in range(20):  # up to ~4s
             if context.pages:
@@ -162,8 +145,7 @@ def login_via_browser(
         except Exception:
             pass  # a slow or redirected load is not fatal; keep polling
 
-        # Tidy any leftover blank or welcome tabs. This profile is ours alone,
-        # so nothing here belongs to the user.
+        # Safe to close: this profile is ours alone, nothing here is the user's.
         for other in list(context.pages):
             if other is page:
                 continue
@@ -195,8 +177,8 @@ def login_via_browser(
                     if value in tested:
                         continue
                     tested.add(value)
-                    # Confirm it works standalone, as the CLI will use it:
-                    # a Bearer header with no cookies and no browser.
+                    # Confirm it works the way the CLI will use it: a Bearer
+                    # header, no cookies, no browser.
                     if _works(value):
                         return value
 
@@ -219,25 +201,12 @@ def refresh_or_login(
     channel: str | None = None,
     profile: Path | None = None,
 ) -> tuple[str, bool]:
-    """Try a silent refresh first, then fall back to interactive sign-in.
+    """Kept for API compatibility; always signs in interactively.
 
-    Returns (cookie, was_interactive). The silent attempt is short: if the
-    stored profile still holds a live sign-in, Planbook hands over a session
-    almost immediately, and if it does not there is nothing to wait for.
+    A silent headless refresh is not possible: the token is minted on
+    app.planbook.com, whose WAF challenges headless browsers. Only a headed
+    window gets through, and that needs a person.
     """
-    profile_dir = profile or default_profile_dir()
-    if profile_dir.exists():
-        try:
-            cookie = login_via_browser(
-                timeout=25,
-                channel=channel,
-                profile=profile_dir,
-                headless=True,
-                quiet=True,
-            )
-            return cookie, False
-        except LoginFailed:
-            pass  # profile is stale or empty; fall through to interactive
     return login_via_browser(
-        timeout=timeout, channel=channel, profile=profile_dir, headless=False
+        timeout=timeout, channel=channel, profile=profile, headless=False
     ), True

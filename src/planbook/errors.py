@@ -2,10 +2,9 @@
 
 SIGN_IN_URL = "https://app.planbook.com/"
 
-# Kept in one place so every not-signed-in path gives the identical remedy.
-# An error that does not say what to do next is only half an error.
+# One copy, so every not-signed-in path gives the identical remedy.
 SIGN_IN_HELP = (
-    f"\n\n  1. Open {SIGN_IN_URL} and sign in (any method, including Google)\n"
+    f"\n\n  1. Open {SIGN_IN_URL} and sign in\n"
     "  2. Run: planbook auth import\n\n"
     "`auth import` reads the token from the browser you signed in with. "
     "If macOS asks for Keychain access, choose Always Allow."
@@ -13,7 +12,7 @@ SIGN_IN_HELP = (
 
 
 class PlanbookError(Exception):
-    """Base class. Carries an exit code so the CLI can map errors to shells."""
+    """Base class. Carries the exit code the CLI returns for this failure."""
 
     exit_code = 1
 
@@ -29,21 +28,15 @@ class LoginFailed(PlanbookError):
 
 
 class ApiError(PlanbookError):
-    """The API returned HTTP 200 with an error payload.
-
-    Planbook signals failure in the body, not the status line, so this is the
-    common case rather than the exceptional one.
-    """
+    """HTTP 200 with an error payload - Planbook signals failure in the body,
+    not the status line, so this is the common case."""
 
     exit_code = 1
 
 
 class SchemaDrift(PlanbookError):
-    """A response did not look the way this CLI expects.
-
-    Raised loudly rather than returning half-parsed data: the API is
-    undocumented and can change without notice.
-    """
+    """A response did not look the way this CLI expects. Raised rather than
+    returning half-parsed data: the API is undocumented and can change."""
 
     exit_code = 65  # EX_DATAERR
 

@@ -12,11 +12,39 @@ Reverse-engineered 2026-08-28 from a live session. Undocumented; can change with
 
 ## Auth
 
-Single `SESSION` cookie (HttpOnly, UUID). Unauthenticated calls return `{"notLoggedIn":"true"}` with HTTP 200 — **check the body, not the status code.**
+**The credential is a JWT, not the `SESSION` cookie.**
+
+The browser carries it as a cookie named `U|<view-id>|.accesstoken`. The server also
+accepts it as `Authorization: Bearer <jwt>`, which is what this CLI sends - verified
+working with no cookies at all.
+
+`SESSION` is a decoy for anyone mapping this by hand: `api.planbook.com` issues one
+to *unauthenticated* callers too, so DevTools shows a plausible `SESSION` next to the
+real credential, and sending it alone returns `{"notLoggedIn":"true"}`.
+
+Established by testing:
+
+- `Authorization: Bearer <jwt>` alone authenticates. No cookie needed.
+- The `<view-id>` in the cookie name is **not validated** - any non-empty value
+  works - but the name must end in `.accesstoken`.
+- The `x-pb-*` headers the web app sends are **not required**.
+- The JWT payload has a double-encoded `sub`: a JSON *string* holding
+  `{id, yearId, key, type, email, code, generic, legacy}`, plus a top-level `exp`.
+- **Lifetime is about 22 hours.** No rotation on normal calls, and no refresh
+  endpoint - `/refreshToken`, `/services/api/refresh-token`,
+  `/services/api/token/refresh` and `/services/planbook/refreshToken` all 404.
 
 `/services/api/*` endpoints additionally want an API key:
-`{"notLoggedIn":"true","message":"Invalid API Key. Please contact planbook.com administrator."}`
-→ There is a sanctioned API-key mechanism. Worth asking support@planbook.com about before building on this.
+`{"notLoggedIn":"true","message":"Invalid API Key. Please contact planbook.com
+administrator."}` - there is a sanctioned API-key mechanism worth asking
+support@planbook.com about.
+
+Note `/services/*` returns **HTTP 200 with `{"error":"true","message":"HTTP 404 Not
+Found"}`** for unknown paths, so a 200 there proves nothing. Read the body.
+
+Unauthenticated calls return `{"notLoggedIn":"true"}` with HTTP 200 - **check the
+body, not the status code.**
+
 
 ## Conventions
 
@@ -86,7 +114,7 @@ Success = HTTP 200 with `error` absent. Failure = HTTP 200 with `{"error":"true"
 
 ## Open
 
-- Headless login against `auth.planbook.com` to obtain `SESSION` — untested (needs credentials).
+- Headless form login against `auth.planbook.com` - untested (needs credentials, and the account here uses SSO).
   Fallback: paste a cookie periodically.
 - Delete-class endpoint not captured (UI-driven cleanup only).
 - CSV import column set still unconfirmed (sample file is behind a HubSpot bot-check).
@@ -139,3 +167,26 @@ command-line use, supporting either the device-code grant or authorization-code
 with PKCE. The infrastructure already exists; only a client registration is
 missing. Note also the issuer is advertised as `http://auth.planbook.com`
 (not https), which is worth flagging to them.
+
+
+## Times
+
+Planbook stores times in 12-hour form only: `"9:00 AM"`. Verified by writing three
+formats to `customStart` and reading them back:
+
+| sent | stored |
+|---|---|
+| `09:00` (24-hour) | `""` - **silently dropped** |
+| `9:00AM` | `9:00 AM` (normalized) |
+| `9:00 AM` | `9:00 AM` |
+
+A 24-hour string is accepted without any error and the time is lost. `parse_time()`
+in `api.py` converts both forms before sending.
+
+Three separate places carry times:
+
+- `updateLesson` -> `customStart` / `customEnd`, overriding the class schedule for
+  that one date.
+- `addEvent` -> `eventStartTime` / `eventEndTime`.
+- the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
+  `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.

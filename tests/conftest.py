@@ -19,7 +19,6 @@ def session_file(isolated_config):
     session_dir = isolated_config / "planbook"
     session_dir.mkdir(parents=True)
     path = session_dir / "token.json"
-    # A syntactically valid JWT so token decoding has something to chew on;
-    # the signature is meaningless because only Planbook can verify it.
+    # A syntactically valid JWT so token decoding has something to chew on.
     path.write_text('{"token": "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ7fSJ9.sig"}')
     return path

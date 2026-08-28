@@ -1,14 +1,11 @@
 """The Planbook access token.
 
-Planbook authenticates API calls with a JWT, not with the `SESSION` cookie.
-The browser carries it as a cookie named `U|<view-id>|.accesstoken`, but the
-server also accepts it as a standard `Authorization: Bearer` header, which is
-what this CLI uses.
+Planbook authenticates with a JWT, not with the `SESSION` cookie. The browser
+carries it as a cookie named `U|<view-id>|.accesstoken`; the server also
+accepts it as `Authorization: Bearer`, which is what this CLI sends.
 
-The token is self-describing: its payload carries the account id, the current
-school year id, the account's email, and an expiry. That lets `auth status`
-say something useful without spending a request, and lets the CLI warn before
-a token lapses instead of failing mid-run.
+The payload carries account id, year id, email and expiry, so `auth status`
+and expiry warnings cost no request.
 """
 
 from __future__ import annotations
@@ -19,8 +16,8 @@ import re
 import time
 from typing import Any
 
-# Matches the token wherever it appears: a bare JWT, a Cookie header, or a
-# whole "Copy as cURL" paste.
+# The token turns up as a bare JWT, inside a Cookie header, or in a whole
+# "Copy as cURL" paste.
 COOKIE_RE = re.compile(r"\.accesstoken=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)")
 BEARER_RE = re.compile(r"[Bb]earer\s+([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)")
 JWT_RE = re.compile(r"^[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+$")
@@ -43,7 +40,7 @@ def _b64(segment: str) -> bytes:
 
 
 def claims(token: str) -> dict[str, Any]:
-    """Decode the payload. Signature is not verified - only the server can.
+    """Decode the payload; the signature is not verified - only the server can.
 
     Planbook double-encodes: `sub` is itself a JSON string.
     """
@@ -61,17 +58,19 @@ def claims(token: str) -> dict[str, Any]:
 
 
 def describe(token: str) -> dict[str, Any]:
-    """Human-facing summary of a token: who it is for and how long it lasts."""
+    """Who the token is for and how long it lasts."""
     data = claims(token)
-    sub = data.get("sub") or {}
+    sub = data.get("sub")
+    if not isinstance(sub, dict):
+        sub = {}
     expires_at = data.get("exp")
     remaining = None
     if isinstance(expires_at, (int, float)):
         remaining = max(0, int(expires_at - time.time()))
     return {
-        "account_id": sub.get("id") if isinstance(sub, dict) else None,
-        "email": sub.get("email") if isinstance(sub, dict) else None,
-        "year_id": sub.get("yearId") if isinstance(sub, dict) else None,
+        "account_id": sub.get("id"),
+        "email": sub.get("email"),
+        "year_id": sub.get("yearId"),
         "expires_at": expires_at,
         "expires_in_seconds": remaining,
         "expires_in_hours": round(remaining / 3600, 1) if remaining is not None else None,

@@ -69,9 +69,11 @@ Once the call works reliably:
 - **Identify honestly.** The User-Agent says what this is. Do not spoof a browser -
   their ToS forbids forging identifiers to disguise origin, and there is no reason
   to need it.
-- **Never touch `app.planbook.com` programmatically.** It sits behind an AWS WAF.
-  Defeating bot detection is out of scope for this project, permanently. The API
-  host has no such protection and is the supported path.
+- **Never make API calls against `app.planbook.com`.** It sits behind an AWS WAF,
+  and defeating bot detection is out of scope for this project, permanently. The
+  API host has no such protection and is the supported path. (`auth browser` opens
+  a headed window there for a human to sign in, which passes the WAF the ordinary
+  way; nothing automated is attempted against that host.)
 - **Prefer failing loudly.** If a response does not look right, raise `SchemaDrift`
   rather than parsing optimistically. A crash is recoverable; a planbook quietly
   filled with wrong lessons is not.

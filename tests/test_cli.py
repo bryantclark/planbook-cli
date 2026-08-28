@@ -114,3 +114,21 @@ def test_bulk_keep_going_records_failure_and_exits_nonzero(tmp_path, capsys, ses
     assert body["failed"] == 1
     assert body["results"][1]["ok"] is False
     assert len(responses.calls) == 2
+
+
+def test_argparse_errors_exit_64(capsys, isolated_config):
+    # AGENTS.md promises 64 for a bad command line; argparse's own default is 2.
+    for argv in (["no-such-command"], ["lessons", "set"], ["classes"]):
+        try:
+            cli.main(argv)
+        except SystemExit as exc:
+            assert exc.code == 64, argv
+        else:  # pragma: no cover
+            raise AssertionError(f"{argv} did not exit")
+
+
+def test_malformed_token_file_is_not_a_traceback(capsys, isolated_config):
+    path = isolated_config / "planbook"
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "token.json").write_text('{"token": 12345}')
+    assert cli.main(["classes", "list"]) == 77

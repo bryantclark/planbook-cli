@@ -109,6 +109,16 @@ planbook lessons set --class-id 12345678 --date 09/03/2026 \
   [--homework "Read ch. 4"] [--notes "Lab groups of 3"] [--dry-run]
 ```
 
+A lesson has **six** text sections, not three. Sections 1-3 are Lesson, Homework
+and Notes; 4-6 are named by the account's lesson layout and are "Not Used" until
+configured. Run `planbook lessons sections` to see the labels, then write any of
+them by number or label:
+
+```bash
+planbook lessons sections
+planbook lessons set --class-id N --date D --section "Objectives=<p>...</p>" --section "4=..."
+```
+
 Lesson times override the class's usual schedule for that day. Bulk items accept
 `start_time` and `end_time` too.
 

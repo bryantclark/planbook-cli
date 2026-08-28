@@ -176,6 +176,7 @@ def _class_payload(
     color: str,
     description: str,
     times: dict[str, tuple[str, str]] | None = None,
+    lesson_layout_id: Any = 0,
 ) -> dict[str, str]:
     """Shared body for creating and updating a class.
 
@@ -209,7 +210,7 @@ def _class_payload(
         "collaborateType": "0",
         "collaborateSubjectId": "0",
         "collaborateKey": "",
-        "lessonLayoutId": "0",
+        "lessonLayoutId": intish(lesson_layout_id),
         "schedules": build_schedule(days, start_date, times),
         # "true" validates and commits nothing. Same trap as events.
         "verifyShift": "false",
@@ -229,11 +230,12 @@ def create_class(
     color: str = "#7ED321",
     description: str = "",
     times: dict[str, tuple[str, str]] | None = None,
+    lesson_layout_id: Any = 0,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
                              days=days, color=color, description=description,
-                             times=times)
+                             times=times, lesson_layout_id=lesson_layout_id)
     if dry_run:
         return {"dry_run": True, "endpoint": "/addClass", "payload": payload}
     client.post("/addClass", payload)
@@ -360,6 +362,7 @@ def set_lesson(
     unit_id: Any = None,
     start_time: str | None = None,
     end_time: str | None = None,
+    sections: dict[int, str] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create or update the lesson for one class on one date.
@@ -379,6 +382,9 @@ def set_lesson(
         updated.append("NOTESTEXT")
     if start_time is not None or end_time is not None:
         updated.extend(["CUSTOMSTART", "CUSTOMEND"])
+    section_text = dict(sections or {})
+    for index in section_text:
+        updated.append(SECTION_FIELDS[index].upper())
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
@@ -393,12 +399,12 @@ def set_lesson(
         "lessonId": "0",
         "linkedLessonId": "0",
         "lessonTitle": title or "",
-        "lessonText": text or "",
-        "homeworkText": homework or "",
-        "notesText": notes or "",
-        "tab4Text": "",
-        "tab5Text": "",
-        "tab6Text": "",
+        "lessonText": section_text.get(1, text or ""),
+        "homeworkText": section_text.get(2, homework or ""),
+        "notesText": section_text.get(3, notes or ""),
+        "tab4Text": section_text.get(4, ""),
+        "tab5Text": section_text.get(5, ""),
+        "tab6Text": section_text.get(6, ""),
         "addClassDaysCode": "",
         "customStart": parse_time(start_time),
         "customEnd": parse_time(end_time),
@@ -444,6 +450,53 @@ def get_week(client: PlanbookClient, *, monday: str, weeks: int = 1) -> Any:
         "/getLessonsEvents",
         {"monday": monday, "userMode": "T", "fetchWeekSize": str(weeks)},
     )
+
+
+# A lesson has six text sections. The first three have fixed names; tabs 4-6
+# are named and enabled per lesson layout, and are "Not Used" until someone
+# configures them.
+SECTION_FIELDS = {
+    1: "lessonText",
+    2: "homeworkText",
+    3: "notesText",
+    4: "tab4Text",
+    5: "tab5Text",
+    6: "tab6Text",
+}
+DEFAULT_SECTION_LABELS = {1: "Lesson", 2: "Homework", 3: "Notes"}
+
+
+def lesson_sections(client: PlanbookClient) -> list[dict[str, Any]]:
+    """The six lesson sections with their current labels and enabled state."""
+    conf = settings(client)
+    if not isinstance(conf, dict):
+        raise SchemaDrift("getSettings did not return an object.")
+    out = []
+    for index, field in SECTION_FIELDS.items():
+        label = conf.get(f"tab{index}Label") or DEFAULT_SECTION_LABELS.get(index)
+        enabled = str(conf.get(f"tab{index}Enabled", "Y")).upper() != "N"
+        out.append({
+            "section": index,
+            "label": label or f"Tab {index}",
+            "enabled": enabled if index > 3 else True,
+            "field": field,
+        })
+    return out
+
+
+def resolve_section(sections: list[dict[str, Any]], key: str) -> int:
+    """Map a section number or label to its index."""
+    key = key.strip()
+    if key.isdigit():
+        index = int(key)
+        if index in SECTION_FIELDS:
+            return index
+        raise UsageError(f"Lesson sections are numbered 1-6; got {key!r}.")
+    for section in sections:
+        if str(section["label"]).lower() == key.lower():
+            return int(section["section"])
+    names = ", ".join(f'{s["section"]}={s["label"]!r}' for s in sections)
+    raise UsageError(f"No lesson section called {key!r}. Available: {names}")
 
 
 def settings(client: PlanbookClient) -> Any:
@@ -584,9 +637,11 @@ def create_event(
     end_time: str = "",
     private: bool = False,
     no_school: bool = False,
+    repeats: str = "daily",
     dry_run: bool = False,
 ) -> Any:
     payload = _event_payload({
+        "repeats": repeats,
         "eventTitle": title,
         "eventDate": date,
         "endDate": end_date or date,
@@ -664,7 +719,9 @@ def _unit_payload(
     lesson_text: str = "",
     homework_text: str = "",
     notes_text: str = "",
+    sections: dict[int, str] | None = None,
 ) -> dict[str, str]:
+    section_text = dict(sections or {})
     return {
         "unitId": intish(unit_id),
         "subjectId": intish(class_id),
@@ -674,12 +731,12 @@ def _unit_payload(
         "unitDesc": description,
         "unitStart": start,
         "unitEnd": end,
-        "unitLessonText": lesson_text,
-        "unitHomeworkText": homework_text,
-        "unitNotesText": notes_text,
-        "unitSection4Text": "",
-        "unitSection5Text": "",
-        "unitSection6Text": "",
+        "unitLessonText": section_text.get(1, lesson_text),
+        "unitHomeworkText": section_text.get(2, homework_text),
+        "unitNotesText": section_text.get(3, notes_text),
+        "unitSection4Text": section_text.get(4, ""),
+        "unitSection5Text": section_text.get(5, ""),
+        "unitSection6Text": section_text.get(6, ""),
         "userMode": "T",
         "types": "SS",
     }
@@ -772,6 +829,7 @@ def _todo_payload(
     due: str,
     priority: str,
     done: bool,
+    repeats: str = "daily",
 ) -> dict[str, str]:
     return {
         "startDate": start,
@@ -780,7 +838,7 @@ def _todo_payload(
         "priority": TODO_PRIORITIES.get(priority, priority),
         "done": "1" if done else "0",
         "toDoId": intish(todo_id),
-        "repeats": "daily",
+        "repeats": repeats,
         "currentDate": "",
         "updateCurrentTodo": "false",
         "action": "U",
@@ -795,6 +853,7 @@ def create_todo(
     due: str = "",
     priority: str = "low",
     done: bool = False,
+    repeats: str = "daily",
 ) -> dict[str, Any]:
     created = client.post("/updateToDo", {"action": "A"})
     todo_id = None
@@ -806,7 +865,7 @@ def create_todo(
             f"Response was: {created!r}"
         )
     payload = _todo_payload(todo_id=todo_id, text=text, start=start, due=due,
-                            priority=priority, done=done)
+                            priority=priority, done=done, repeats=repeats)
     client.post("/updateToDo", payload)
     return {"ok": True, "todo_id": todo_id, "text": text}
 
@@ -820,10 +879,11 @@ def update_todo(
     due: str = "",
     priority: str = "low",
     done: bool = False,
+    repeats: str = "daily",
 ) -> dict[str, Any]:
     client.post("/updateToDo", _todo_payload(
         todo_id=todo_id, text=text, start=start, due=due,
-        priority=priority, done=done))
+        priority=priority, done=done, repeats=repeats))
     return {"ok": True, "todo_id": intish(todo_id)}
 
 

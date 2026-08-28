@@ -188,7 +188,8 @@ def cmd_classes_create(args: argparse.Namespace) -> None:
     emit(api.create_class(
         client, name=args.name, start_date=args.start, end_date=args.end,
         days=days, color=args.color, description=args.description or "",
-        times=api.parse_day_times(args.time, days), dry_run=args.dry_run))
+        times=api.parse_day_times(args.time, days),
+        lesson_layout_id=args.lesson_layout_id, dry_run=args.dry_run))
 
 
 def cmd_classes_update(args: argparse.Namespace) -> None:
@@ -202,6 +203,32 @@ def cmd_classes_update(args: argparse.Namespace) -> None:
 
 def cmd_classes_get(args: argparse.Namespace) -> None:
     emit(api.get_class(client_from(args), args.class_id))
+
+
+def _sections_from(args: argparse.Namespace, client) -> dict[int, str] | None:
+    """Resolve --section SPEC values to section indexes.
+
+    Labels come from the account's lesson layout, so this only fetches
+    settings when a label (rather than a number) is actually used.
+    """
+    if not args.section:
+        return None
+    resolved: dict[int, str] = {}
+    known = None
+    for spec in args.section:
+        key, sep, value = spec.partition("=")
+        if not sep:
+            raise UsageError(
+                f"--section {spec!r} needs KEY=TEXT, e.g. 4=... or Homework=..."
+            )
+        if not key.strip().isdigit() and known is None:
+            known = api.lesson_sections(client or client_from(args))
+        resolved[api.resolve_section(known or [], key)] = value
+    return resolved
+
+
+def cmd_lessons_sections(args: argparse.Namespace) -> None:
+    emit(api.lesson_sections(client_from(args)))
 
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
@@ -218,6 +245,7 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
         unit_id=args.unit_id,
         start_time=args.start_time,
         end_time=args.end_time,
+        sections=_sections_from(args, client),
         dry_run=args.dry_run,
     ))
 
@@ -334,7 +362,7 @@ def cmd_events_create(args: argparse.Namespace) -> None:
                           start_time=args.start_time or "",
                           end_time=args.end_time or "",
                           private=args.private, no_school=args.no_school,
-                          dry_run=args.dry_run))
+                          repeats=args.repeats, dry_run=args.dry_run))
 
 
 def cmd_events_delete(args: argparse.Namespace) -> None:
@@ -392,13 +420,14 @@ def cmd_todos_list(args: argparse.Namespace) -> None:
 def cmd_todos_create(args: argparse.Namespace) -> None:
     emit(api.create_todo(client_from(args), text=args.text, start=args.start,
                          due=args.due or "", priority=args.priority,
-                         done=args.done))
+                         done=args.done, repeats=args.repeats))
 
 
 def cmd_todos_update(args: argparse.Namespace) -> None:
     emit(api.update_todo(client_from(args), todo_id=args.todo_id, text=args.text,
                          start=args.start, due=args.due or "",
-                         priority=args.priority, done=args.done))
+                         priority=args.priority, done=args.done,
+                         repeats=args.repeats))
 
 
 def cmd_todos_delete(args: argparse.Namespace) -> None:
@@ -489,6 +518,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--time", action="append", default=[], metavar="SPEC",
                    help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
                         "for one day; repeatable")
+    c.add_argument("--lesson-layout-id", dest="lesson_layout_id", default=0,
+                   help="layout deciding which lesson sections exist "
+                        "(see `planbook lessons sections`)")
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_create)
     c = s_cls.add_parser(
@@ -527,6 +559,9 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--start-time", dest="start_time", metavar="TIME",
                    help="lesson start, e.g. 9:00am or 14:30")
     l.add_argument("--end-time", dest="end_time", metavar="TIME")
+    l.add_argument("--section", action="append", default=[], metavar="KEY=TEXT",
+                   help="write a lesson section by number (1-6) or by its label, "
+                        "e.g. --section 'Objectives=...'; repeatable")
     l.add_argument("--dry-run", action="store_true",
                    help="print the form payload instead of sending it")
     l.set_defaults(func=cmd_lessons_set)
@@ -538,6 +573,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="continue after a failed item instead of stopping")
     l.add_argument("--dry-run", action="store_true")
     l.set_defaults(func=cmd_lessons_bulk)
+    l = s_les.add_parser(
+        "sections",
+        help="show the six lesson sections, their labels and whether they are on")
+    l.set_defaults(func=cmd_lessons_sections)
     l = s_les.add_parser("delete", help="clear the lesson on one date")
     l.add_argument("--class-id", dest="class_id", required=True)
     l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
@@ -575,6 +614,7 @@ def build_parser() -> argparse.ArgumentParser:
         t.add_argument("--priority", choices=["low", "medium", "high"],
                        default="low")
         t.add_argument("--done", action="store_true")
+        t.add_argument("--repeats", default="daily")
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
     t.add_argument("todo_id")
@@ -622,6 +662,8 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--private", action="store_true")
     e.add_argument("--no-school", dest="no_school", action="store_true",
                    help="mark as a no-school day")
+    e.add_argument("--repeats", default="daily",
+                   help="recurrence across the date range (default: daily)")
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_create)
     e = s_ev.add_parser(

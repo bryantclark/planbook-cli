@@ -259,3 +259,22 @@ def test_build_schedule_carries_per_day_times():
     assert slot["startDay2"] == "9:00 AM"   # teachDay2 is Monday
     assert slot["endDay2"] == "9:50 AM"
     assert slot["startDay3"] == ""          # Tuesday, not taught
+
+
+def test_resolve_section_by_number_and_label():
+    sections = [{"section": 1, "label": "Lesson"}, {"section": 4, "label": "Objectives"}]
+    assert api.resolve_section(sections, "4") == 4
+    assert api.resolve_section(sections, "Objectives") == 4
+    assert api.resolve_section(sections, "objectives") == 4
+    with pytest.raises(UsageError):
+        api.resolve_section(sections, "Nope")
+    with pytest.raises(UsageError):
+        api.resolve_section(sections, "9")
+
+
+def test_set_lesson_writes_arbitrary_sections():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026",
+                             sections={1: "a", 4: "b"}, dry_run=True)["payload"]
+    assert payload["lessonText"] == "a"
+    assert payload["tab4Text"] == "b"
+    assert "TAB4TEXT" in payload["updatedFields"]

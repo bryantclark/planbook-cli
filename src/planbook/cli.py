@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,25 @@ from .errors import PlanbookError, UsageError
 def emit(value: Any) -> None:
     json.dump(value, sys.stdout, indent=2, default=str)
     sys.stdout.write("\n")
+
+
+SESSION_RE = re.compile(r"SESSION=([0-9a-fA-F-]{36})")
+UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+
+
+def extract_session(text: str) -> str | None:
+    """Pull a SESSION value out of whatever the user pasted.
+
+    Accepts the bare value, a full `Cookie:` header, or an entire command
+    copied with DevTools' "Copy as cURL" - which is the least error-prone
+    thing to ask someone for, since it is one right-click and cannot pick up
+    the wrong cookie.
+    """
+    text = text.strip()
+    if UUID_RE.match(text):
+        return text
+    match = SESSION_RE.search(text)
+    return match.group(1) if match else None
 
 
 def client_from(args: argparse.Namespace) -> PlanbookClient:
@@ -59,12 +79,31 @@ def cmd_auth_cookie(args: argparse.Namespace) -> None:
     credential for the whole account, and passing it as an argument leaves
     it in shell history and in the process list.
     """
-    value = args.value or getpass.getpass("SESSION cookie: ")
-    value = value.strip()
+    raw = args.value or getpass.getpass("Paste cookie, Cookie header, or curl: ")
+    value = extract_session(raw)
     if not value:
-        raise UsageError("No cookie provided.")
+        raise UsageError(
+            "No SESSION value found in that input. Paste either the cookie "
+            "value itself, a whole Cookie: header, or a request copied with "
+            "DevTools -> right-click -> Copy as cURL."
+        )
+
+    # Verify before storing. A cookie that does not work should fail here,
+    # not three commands later with a confusing error - and DevTools shows an
+    # anonymous SESSION next to the real one, so a wrong paste is easy.
+    if not args.no_verify:
+        from .auth import _works
+        if not _works(value):
+            raise UsageError(
+                "That SESSION was found but the API rejects it.\n"
+                "It is most likely an anonymous session. Get the authenticated "
+                "one from DevTools -> Network -> filter 'api.planbook.com' -> "
+                "click getClasses2 -> right-click -> Copy as cURL, then paste "
+                "the whole thing here."
+            )
+
     path = config.save_session(value)
-    emit({"ok": True, "stored": str(path)})
+    emit({"ok": True, "stored": str(path), "verified": not args.no_verify})
 
 
 def cmd_auth_browser(args: argparse.Namespace) -> None:
@@ -260,7 +299,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_auth_login)
     a = s_auth.add_parser("cookie", help="store a SESSION cookie from a browser (SSO accounts)")
     a.add_argument("value", nargs="?",
-                   help="the SESSION cookie value; prompted for (hidden) if omitted")
+                   help="cookie value, Cookie header, or a 'Copy as cURL' paste; "
+                        "prompted for (hidden) if omitted")
+    a.add_argument("--no-verify", action="store_true",
+                   help="store without checking the session against the API")
     a.set_defaults(func=cmd_auth_cookie)
     a = s_auth.add_parser(
         "browser",

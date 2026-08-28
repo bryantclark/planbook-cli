@@ -67,14 +67,21 @@ with a proper redirect flow. See docs/API-NOTES.md.
 
 Sign in to Planbook in your normal browser, then:
 
-**Reliable method - Network tab.** Open DevTools, go to **Network**, reload the page,
-and click any request to `api.planbook.com`. Under **Request Headers**, copy the
-value after `Cookie: SESSION=`. This shows exactly what the API host receives, which
-is what the CLI needs.
+Sign in to Planbook in your normal browser, then open DevTools:
 
-**Alternative - Application tab.** DevTools -> **Application** -> **Cookies** ->
-`https://api.planbook.com` -> `SESSION`. If that origin is not listed, load your
-planbook first so the app calls the API, then look again.
+1. **Network** tab, type `api.planbook.com` in the filter box
+2. reload the page, click the **`getClasses2`** request
+3. right-click it -> **Copy** -> **Copy as cURL**
+4. run `planbook auth cookie` and paste the whole thing
+
+`auth cookie` pulls the `SESSION` value out of whatever you paste - the bare
+value, a full `Cookie:` header, or an entire cURL command - and verifies it
+against the API before storing, so a bad paste fails immediately.
+
+Copy-as-cURL is recommended over reading the cookie store because
+`api.planbook.com` issues an **anonymous** `SESSION` to unauthenticated callers.
+DevTools' Application tab will happily show you that one, and it looks identical
+to the real thing. A request that actually succeeded cannot carry the wrong one.
 
 The cookie is HttpOnly, so it will not appear in `document.cookie`.
 

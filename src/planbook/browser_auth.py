@@ -22,6 +22,10 @@ import time
 from pathlib import Path
 
 from .config import config_dir
+from .default_browser import (
+    default_browser_name,
+    default_chromium_executable,
+)
 from .errors import LoginFailed
 
 # Sign in on the auth host, never the app host. app.planbook.com sits behind
@@ -79,33 +83,59 @@ def login_via_browser(
     profile_dir.mkdir(parents=True, exist_ok=True)
     profile_dir.chmod(0o700)
 
-    channels = (channel,) if channel else CHANNELS
     tested: set[str] = set()
+
+    # Prefer whatever browser the user actually uses. Their identity provider
+    # session lives there, and a sign-in window that is not the browser they
+    # recognise is its own small hazard.
+    preferred: list[tuple[str, dict]] = []
+    if not channel:
+        found = default_chromium_executable()
+        if found:
+            name, executable = found
+            preferred.append((name, {"executable_path": executable}))
+    channels = (channel,) if channel else CHANNELS
+    for candidate in channels:
+        preferred.append((
+            candidate,
+            {} if candidate == "chromium" else {"channel": candidate},
+        ))
 
     with sync_playwright() as pw:
         context = None
         last_error: Exception | None = None
-        for candidate in channels:
+        launched = None
+        for label, launch_kwargs in preferred:
             try:
                 context = pw.chromium.launch_persistent_context(
                     str(profile_dir),
                     headless=headless,
-                    channel=candidate if candidate != "chromium" else None,
                     args=["--no-first-run", "--no-default-browser-check"],
+                    **launch_kwargs,
                 )
+                launched = label
                 break
-            except Exception as exc:  # channel not installed on this machine
+            except Exception as exc:  # not installed on this machine
                 last_error = exc
         if context is None:
+            tried = ", ".join(label for label, _ in preferred)
+            hint = ""
+            name = default_browser_name()
+            if name and not default_chromium_executable():
+                hint = (
+                    f"\nYour default browser is {name}, which is not Chromium-based "
+                    "and cannot be driven here. A Chromium browser (Chrome, Brave, "
+                    "Edge) is needed, or use `planbook auth cookie` instead."
+                )
             raise LoginFailed(
-                f"Could not launch a browser (tried {', '.join(channels)}). "
-                f"Last error: {last_error}\n"
-                "If you have no Chrome or Edge, run `playwright install chromium`."
+                f"Could not launch a browser (tried {tried}). "
+                f"Last error: {last_error}{hint}\n"
+                "You can also run `playwright install chromium`."
             )
 
         if not quiet:
             print(
-                "Opening a browser. Sign in to Planbook however you normally do "
+                f"Opening {launched}. Sign in to Planbook however you normally do "
                 "(Google is fine).\nThis window closes by itself once you are in.",
                 file=sys.stderr,
             )

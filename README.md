@@ -46,7 +46,7 @@ pip install 'planbook-cli[browser]'
 planbook auth browser
 ```
 
-This opens a real Chrome window on Planbook's sign-in page. You sign in however
+This opens **your default browser** on Planbook's sign-in page - Brave, Chrome, Edge, Arc, Vivaldi, whichever handles `https://` on your machine. Firefox and Safari are not Chromium-based and cannot be driven; if one of those is your default, the CLI says so and falls back to Chrome. `--channel` overrides. You sign in however
 you normally do; the CLI polls until a session actually works, then closes the
 window. Your password is never typed into this tool and never passes through it.
 

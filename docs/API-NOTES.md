@@ -274,3 +274,47 @@ Fully decoded. The body has a `days` list, one entry per day of the fetched rang
 which is why they cannot be matched by date from the lesson record alone. `objects`
 holds a placeholder for every class that meets that day; only entries with a
 `lessonId` have been saved. Events appear in the same list with `"type": "E"`.
+
+## Two request styles, and a GET-only family
+
+Everything under `/xxxServlet` and the bare `/getX` `/addX` names is a
+form-encoded **POST**. But part of the API is a Spring service layer under
+`/services/planbook/**` that answers differently:
+
+| response | meaning |
+|---|---|
+| `{"error":"true","message":"HTTP 405 Method Not Allowed"}` to a POST | the endpoint is **GET** |
+| `{"error":"true","message":"HTTP 415 Unsupported Media Type"}` to a JSON POST | wants form encoding, not JSON |
+| `{"error":"true","message":"HTTP 404 Not Found"}` with HTTP 200 | no such path - status codes prove nothing here |
+| an HTML `<!doctype html>` page | the SPA fallback: wrong path or wrong method |
+
+Confirmed GET endpoints (empty body when there is no data):
+
+```
+GET /services/planbook/attendance/get?classId=&date=
+GET /services/planbook/attendance/getLessonsByDate?date=
+```
+
+A client that only speaks POST cannot reach these at all.
+
+## Endpoint map for the remaining features
+
+Found by loading each page and reading `performance.getEntriesByType('resource')`:
+
+| feature | endpoints |
+|---|---|
+| students | `/addStudentServlet` `/updateStudentServlet` `/deleteStudentServlet` (POST form), `/getStudentsServlet` (POST, needs `classId`+`userMode`), `/services/planbook/student/getAllFromSchool` (all students as `{id: "Last, First"}`) |
+| attendance | `/services/planbook/attendance/get`, `/services/planbook/attendance/getLessonsByDate` (both GET) |
+| grades | `/getStudentScoresServlet` (POST; wants a subject, `classId` alone gives `"subject" is null`), `/services/planbook/student/studentsTagged` |
+| templates | `/getTemplates`, `/addTemplate`, `/updateTemplate`, `/deleteTemplate` (all exist; "Cannot parse null string" until given ids) |
+| lesson banks | no endpoints of their own - the page reuses `/getLessonsEvents` and `/getUnits`, and `getClasses2` already returns `lessonBanks` |
+| lesson moves | `/bumpLesson`, `/extendLesson` exist (Integer NPE until given ids). `/copyLesson` and `/swapLessons` return the SPA page - not real names |
+| seating charts | no page-level endpoints observed |
+
+`/addStudentServlet` fields, captured:
+
+```
+studentCode studentPassword studentFirstName studentMiddleName studentLastName
+studentEmailAddress studentPhoneNumber parentEmailAddress studentBirthDate
+schoolDistrictId userMode studentPhotoUrl
+```

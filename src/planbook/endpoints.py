@@ -81,8 +81,8 @@ ENDPOINTS = [
     ("/addTemplate", "observed", "Create a lesson template"),
     ("/updateTemplate", "observed", "Update a lesson template"),
     ("/deleteTemplate", "observed", "Delete a lesson template"),
-    ("/bumpLesson", "observed", "Shift lessons forward"),
-    ("/extendLesson", "observed", "Extend a lesson across days"),
+    ("/bumpLesson", "observed", "Shift lessons forward; wants an unnamed Integer"),
+    ("/extendLesson", "observed", "Extend a lesson; wants an unnamed Integer"),
     # Gated
     ("/services/api/stickers", "observed", "Stickers"),
     ("/services/api/referencedata/maintenanceData", "observed", "Reference data"),

@@ -318,3 +318,20 @@ studentCode studentPassword studentFirstName studentMiddleName studentLastName
 studentEmailAddress studentPhoneNumber parentEmailAddress studentBirthDate
 schoolDistrictId userMode studentPhotoUrl
 ```
+
+## Three endpoints I could not finish
+
+All exist and answer; each wants an integer/long parameter the error refuses to
+name (`HttpServletRequestHelper.getLong(String) is null`, with no field). The
+usual trick - reading the field name out of the NPE - does not work here, and
+none of them fire a fresh request from the UI once the page has cached its data,
+so there was nothing to capture.
+
+| endpoint | blocker |
+|---|---|
+| `/services/planbook/newNote/filterNotes` | unnamed Long; `classId` appears beside it in the bundle but no value satisfies it |
+| `/bumpLesson` | unnamed Integer; not `classId`/`customDate`/`numDays` |
+| `/extendLesson` | same as bumpLesson |
+
+Reachable through `planbook raw` once the parameter is known. Capturing one real
+request from the web app - Network tab, Copy as cURL - would settle all three.

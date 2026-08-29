@@ -8,7 +8,7 @@ import os
 
 from .. import api, auth, browser_auth, browser_cookies, config
 from .. import token as pbtoken
-from ..cli import emit
+from ..cli_support import emit
 from ..client import PlanbookClient
 from ..errors import NotAuthenticated, UsageError
 

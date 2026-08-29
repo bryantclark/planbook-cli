@@ -162,10 +162,3 @@ def delete_event(
         "title": payload["eventTitle"],
         "scope": "occurrence" if occurrence_only else "series",
     }
-
-
-# ---------------------------------------------------------------------------
-# Units
-#
-# All three operations go through /updateUnit, selected by `action` (A/U/D).
-# `subjectId` is the class id - Planbook says "subject" here and nowhere else.

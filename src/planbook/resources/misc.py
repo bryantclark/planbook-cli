@@ -155,11 +155,3 @@ def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
             "withAllFolders": "true",
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# Events
-#
-# Update and delete want the *whole* event echoed back, not just its id, so
-# mutations look the record up first: the server treats missing fields as
-# cleared, and a skeleton delete removes the wrong occurrence of a repeat.

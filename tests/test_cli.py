@@ -123,34 +123,48 @@ def test_bulk_malformed_file_exits_64(tmp_path, capsys, isolated_config):
     assert captured.out == ""
 
 
-@responses.activate
-def test_bulk_keep_going_records_failure_and_exits_nonzero(
+def test_bulk_rejects_a_bad_item_before_writing_anything(
     tmp_path, capsys, session_file
 ):
+    # SKILL.md promises a typo cannot half-apply a week, so value errors must
+    # surface in the pre-flight pass, not mid-write.
     path = tmp_path / "lessons.json"
     path.write_text(
         json.dumps(
             [
                 {"class_id": 123, "date": "09/03/2026", "title": "Ok"},
-                {"class_id": 123, "date": "09/04/2026"},
-                {"class_id": 123, "date": "09/05/2026", "text": "Still runs"},
+                {"class_id": 123, "date": "09/04/2026", "start_time": "9:00"},
             ]
         )
     )
-    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    assert cli.main(["lessons", "bulk", str(path)]) == 64
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_bulk_keep_going_continues_past_an_api_failure(tmp_path, capsys, session_file):
+    # An API-level failure can only be found at write time; --keep-going
+    # records it, carries on, and still exits non-zero.
+    path = tmp_path / "lessons.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"class_id": 123, "date": "09/03/2026", "title": "One"},
+                {"class_id": 123, "date": "09/04/2026", "title": "Two"},
+            ]
+        )
+    )
+    responses.post(f"{API_BASE}/getEvents", json={"events": []})
+    responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
+    responses.post(f"{API_BASE}/updateLesson", json={"error": "true", "msg": "nope"})
     responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
 
     with pytest.raises(SystemExit) as exc:
         cli.main(["lessons", "bulk", str(path), "--keep-going"])
-    body, _ = parse_stdout(capsys)
-
     assert exc.value.code == 1
-    assert body["written"] == 2
+    body = json.loads(capsys.readouterr().out)
     assert body["failed"] == 1
-    assert body["results"][1]["ok"] is False
-    # Count writes, not every call: the no-school warning also hits the API.
-    writes = [c for c in responses.calls if c.request.url.endswith("/updateLesson")]
-    assert len(writes) == 2
+    assert body["written"] == 1
 
 
 def test_argparse_errors_exit_64(capsys, isolated_config):
@@ -169,3 +183,26 @@ def test_malformed_token_file_is_not_a_traceback(capsys, isolated_config):
     path.mkdir(parents=True, exist_ok=True)
     (path / "token.json").write_text('{"token": 12345}')
     assert cli.main(["classes", "list"]) == 77
+
+
+@responses.activate
+def test_events_delete_dry_run_sends_no_delete(capsys, session_file):
+    # The flag existed, was advertised, and performed the delete anyway.
+    responses.post(
+        f"{API_BASE}/getEvents",
+        json={
+            "events": [
+                {"eventId": 7, "eventTitle": "Holiday", "eventDate": "09/07/2026"}
+            ]
+        },
+    )
+    assert cli.main(["events", "delete", "7", "--dry-run"]) == 0
+    assert not [c for c in responses.calls if c.request.url.endswith("/deleteEvent")]
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+
+
+@responses.activate
+def test_raw_json_actually_sends_json(capsys, session_file):
+    responses.post(f"{API_BASE}/x", json={})
+    assert cli.main(["raw", "/x", "-F", "a=1", "--json"]) == 0
+    assert responses.calls[0].request.headers["Content-Type"] == "application/json"

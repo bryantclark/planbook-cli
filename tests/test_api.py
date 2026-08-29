@@ -203,12 +203,6 @@ def test_unit_payload_sends_class_id_as_subject_id():
     assert payload["action"] == "A"
 
 
-def test_delete_lesson_payload():
-    payload = {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
-    assert payload == {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
-
-
-@responses.activate
 def test_set_lesson_dry_run_builds_payload_without_network():
     result = api.lesson_payload(
         class_id=123,
@@ -583,3 +577,76 @@ def test_list_students_rejects_a_shape_it_does_not_recognise():
     responses.post(f"{API_BASE}/getStudentsServlet", json={"nope": []})
     with pytest.raises(SchemaDrift):
         api.list_students(PlanbookClient("t.t.t"), class_id=5)
+
+
+@responses.activate
+def test_lessons_between_spans_a_year_boundary():
+    # MM/DD/YYYY compared as strings inverts across New Year, which silently
+    # disarmed the no-school guard for exactly the events that span one.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "12/22/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [{"classId": 1, "className": "Math", "lessonId": 5}],
+                },
+                {
+                    "date": "01/05/2027",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [{"classId": 1, "className": "Math", "lessonId": 6}],
+                },
+            ]
+        },
+    )
+    found = api.lessons_between(
+        PlanbookClient("t.t.t"), start="12/22/2026", end="01/05/2027"
+    )
+    assert len(found) == 2
+
+
+@responses.activate
+def test_delete_lesson_posts_the_right_body():
+    responses.post(f"{API_BASE}/deleteLesson", json={"ok": True})
+    api.delete_lesson(PlanbookClient("t.t.t"), class_id=7, date="09/01/2026")
+    sent = dict(urllib.parse.parse_qsl(responses.calls[0].request.body))
+    assert sent == {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
+
+
+@responses.activate
+def test_set_lesson_carries_over_text_it_was_not_asked_to_change():
+    # updatedFields is NOT a mask: a field sent empty is written empty, so a
+    # standards-only write used to wipe the title, body and homework.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/01/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 9,
+                            "lessonTitle": "Keep me",
+                            "lessonText": "<p>body</p>",
+                            "homeworkText": "hw",
+                            "notesText": "notes",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    api.set_lesson(
+        PlanbookClient("t.t.t"), class_id=1, date="09/01/2026", standards=["118071"]
+    )
+    write = [c for c in responses.calls if c.request.url.endswith("/updateLesson")][-1]
+    sent = dict(urllib.parse.parse_qsl(write.request.body))
+    assert sent["lessonTitle"] == "Keep me"
+    assert sent["lessonText"] == "<p>body</p>"
+    assert sent["homeworkText"] == "hw"
+    assert sent["notesText"] == "notes"

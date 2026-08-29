@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 
-from .. import api, config
-from .. import token as pbtoken
-from ..cli import client_from, emit
+from .. import api
+from ..cli_support import client_from, emit, teacher_id_from
 from ..endpoints import ENDPOINTS
 from ..errors import UsageError
 
@@ -34,17 +33,8 @@ def cmd_simple_read(args: argparse.Namespace) -> None:
     emit(api.simple_read(client_from(args), args.command, raw=args.raw))
 
 
-def _teacher_id(args: argparse.Namespace) -> object:
-    teacher_id = getattr(args, "teacher_id", None) or pbtoken.describe(
-        config.load_session()
-    ).get("account_id")
-    if not teacher_id:
-        raise UsageError("Could not determine a teacher id; pass --teacher-id.")
-    return teacher_id
-
-
 def cmd_attachments_list(args: argparse.Namespace) -> None:
-    emit(api.list_attachments(client_from(args), teacher_id=_teacher_id(args)))
+    emit(api.list_attachments(client_from(args), teacher_id=teacher_id_from(args)))
 
 
 def cmd_attachments_upload(args: argparse.Namespace) -> None:
@@ -75,9 +65,12 @@ def cmd_raw(args: argparse.Namespace) -> None:
         )
         return
     client = client_from(args)
-    emit(
-        client.get(args.path, payload) if args.get else client.post(args.path, payload)
-    )
+    if args.get:
+        emit(client.get(args.path, payload))
+    elif args.json:
+        emit(client.post_json(args.path, dict(payload)))
+    else:
+        emit(client.post(args.path, payload))
 
 
 # --------------------------------------------------------------------------

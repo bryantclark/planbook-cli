@@ -127,6 +127,11 @@ def find_lesson(
     return None
 
 
+def _html(value: Any) -> str:
+    """Text fields come back as strings or None; normalise for re-sending."""
+    return "" if value is None else str(value)
+
+
 def lesson_payload(
     *,
     class_id: int | str,
@@ -255,6 +260,29 @@ def set_lesson(
     `/updateLesson` is keyed by class and date rather than lesson id, so this
     is an upsert: writing the same date twice edits in place.
     """
+    # The server does NOT honour updatedFields as a mask: any text field sent
+    # empty is written empty. Verified by losing a title, body and homework to
+    # a call that only attached a standard. So every write is
+    # read-modify-write, and anything the caller did not name is carried over.
+    existing = find_lesson(client, class_id=class_id, date=date)
+    if existing:
+        title = title if title is not None else _html(existing.get("lessonTitle"))
+        text = text if text is not None else _html(existing.get("lessonText"))
+        homework = (
+            homework if homework is not None else _html(existing.get("homeworkText"))
+        )
+        notes = notes if notes is not None else _html(existing.get("notesText"))
+        if start_time is None and end_time is None:
+            start_time = _html(existing.get("customStart")) or None
+            end_time = _html(existing.get("customEnd")) or None
+        carried = {
+            index: _html(existing.get(field))
+            for index, field in SECTION_FIELDS.items()
+            if index >= 4 and existing.get(field)
+        }
+        if carried:
+            sections = {**carried, **(sections or {})}
+
     payload, updated = lesson_payload(
         class_id=class_id,
         date=date,
@@ -385,10 +413,17 @@ def lessons_between(
     """Saved lessons falling on or between two dates."""
     weeks = 1
     with contextlib.suppress(ValueError):
-        weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 1)
+        weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 2)
     found = []
     for day in read_week(client, monday=start, weeks=weeks):
-        if start <= day["date"] <= end or day["date"] == start:
+        # Compare dates, not MM/DD/YYYY strings: lexically "01/05/2027" sorts
+        # before "12/22/2026", so a winter-break range matched nothing and the
+        # no-school guard reported zero lessons at risk.
+        try:
+            in_range = _as_date(start) <= _as_date(day["date"]) <= _as_date(end)
+        except ValueError:
+            in_range = day["date"] == start
+        if in_range:
             found.extend(day["lessons"])
     return found
 

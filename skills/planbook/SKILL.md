@@ -76,7 +76,10 @@ planbook lessons bulk week.json --class-id 12345678
 
 ```bash
 planbook classes  list|get|create|update|delete
-planbook lessons  set|bulk|delete|week|sections
+planbook students list|create|update|delete
+planbook grades   --class-id N          # scores
+planbook attendance --class-id N --date D  # read-only
+planbook lessons  set|bulk|get|delete|week|sections
 planbook units    list|create|update|delete
 planbook events   list|create|delete
 planbook todos    list|create|update|delete

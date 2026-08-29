@@ -45,7 +45,7 @@ Run `planbook <group> --help` for exact flags. Groups:
 |---|---|
 | `auth` | `status`, `import`, `token`, `browser`, `logout` |
 | `classes` | `list`, `get`, `create`, `update`, `delete` |
-| `lessons` | `set`, `bulk`, `delete`, `week` |
+| `lessons` | `set`, `bulk`, `get`, `delete`, `week`, `sections` |
 | `units` | `list`, `create`, `update`, `delete` |
 | `events` | `list`, `create`, `delete` |
 | `todos` | `list`, `create`, `update`, `delete` |
@@ -153,7 +153,10 @@ planbook classes create --name "Biology 1" --start 08/31/2026 --end 06/06/2027 \
 planbook classes create ... --days MTWRF --time 9:00-9:50
 ```
 
-**`lessons set` is an upsert keyed on class + date.** Writing the same date twice
+**`lessons set` is an upsert keyed on class + date**, and a true partial update:
+it reads the lesson first and carries over anything you do not name. That read is
+not optional - the server writes empty any text field it receives empty, so a
+standards-only write would otherwise blank the lesson. Writing the same date twice
 edits the existing lesson in place; it does not create a duplicate. This makes it
 safe to re-run, and it is the main reason to use this tool over Planbook's CSV
 import, which is append-only.
@@ -212,7 +215,10 @@ These come from the server's own behaviour, not from style preference:
 - **Integer fields must be `0` when absent, never `""`.** An empty string triggers a
   server-side Java `NullPointerException` returned as a 200. Again, `raw` does not
   handle this for you.
-- **Every call is POST**, form-encoded. There are no GET endpoints and no JSON bodies.
+- **Most calls are form-encoded POST**, but not all: a few `/services/planbook/**`
+  endpoints are GET-only and answer a POST with `405`, and a couple want a JSON
+  body. `raw --get` and `raw --json` cover both. A 405 in an error message means
+  "use `--get`".
 - **Failure arrives as HTTP 200** with `{"error":"true","msg":"..."}`. This tool
   detects that and exits non-zero, so you can trust the exit code.
 

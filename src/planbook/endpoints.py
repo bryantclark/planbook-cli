@@ -6,6 +6,7 @@
             exercised against a live account
   partial   the call works, the response shape is not fully decoded
   observed  seen in browser traffic, not yet wired up - reach it with `raw`
+  absent    probed and does not exist under this name
 
 Anything not listed may still exist. `planbook raw` will POST to any path,
 which is the honest way to cover an API nobody has documented.
@@ -22,7 +23,7 @@ ENDPOINTS = [
     ("/updateLesson", "mapped", "Upsert a lesson by class + date"),
     ("/deleteLesson", "mapped", "Clear the lesson on one date"),
     ("/getLessonsEvents", "mapped", "Lessons and events by week, grouped by day"),
-    ("/copyLesson", "observed", "Copy lessons (yearId, sharedYearId, subjectIds)"),
+    ("/copyLesson", "absent", "Not a real path - answers with the SPA page"),
     ("/bumpLesson", "observed", "Bump/shift lessons"),
     # Units
     ("/getUnits", "mapped", "Units"),
@@ -81,7 +82,6 @@ ENDPOINTS = [
     ("/addTemplate", "observed", "Create a lesson template"),
     ("/updateTemplate", "observed", "Update a lesson template"),
     ("/deleteTemplate", "observed", "Delete a lesson template"),
-    ("/bumpLesson", "observed", "Shift lessons forward; wants an unnamed Integer"),
     ("/extendLesson", "observed", "Extend a lesson; wants an unnamed Integer"),
     # Gated
     ("/services/api/stickers", "observed", "Stickers"),

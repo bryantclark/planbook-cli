@@ -10,25 +10,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import requests
 
-from . import __version__, api, browser_cookies, config
-from .client import PlanbookClient
+from . import __version__, api, browser_cookies
 from .errors import PlanbookError, UsageError
-
-
-def emit(value: Any) -> None:
-    json.dump(value, sys.stdout, indent=2, default=str)
-    sys.stdout.write("\n")
-
-
-def client_from(args: argparse.Namespace) -> PlanbookClient:
-    return PlanbookClient(config.load_session(), verbose=args.verbose)
 
 
 class _Parser(argparse.ArgumentParser):

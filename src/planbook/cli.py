@@ -240,6 +240,9 @@ def cmd_lessons_sections(args: argparse.Namespace) -> None:
 def cmd_lessons_set(args: argparse.Namespace) -> None:
     # A dry run must not need a session; it is the safe first step.
     client = None if args.dry_run else client_from(args)
+    if client is not None and args.date in api.no_school_dates(client):
+        print(f"warning: {args.date} is marked as a no-school day.",
+              file=sys.stderr)
     emit(api.set_lesson(
         client,
         class_id=args.class_id,
@@ -271,6 +274,26 @@ def _require_class_id(item: dict, args: argparse.Namespace, index: int) -> Any:
     return class_id
 
 
+BULK_KEYS = {"class_id", "date", "title", "text", "homework", "notes",
+             "unit_id", "start_time", "end_time", "sections"}
+
+
+def _bulk_sections(item: dict, args: argparse.Namespace, index: int):
+    """Read a bulk item's `sections` map, resolving labels the same as --section."""
+    raw = item.get("sections")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise UsageError(f"Item {index}: `sections` must be an object.")
+    known = None
+    resolved = {}
+    for key, value in raw.items():
+        if not str(key).strip().isdigit() and known is None:
+            known = api.lesson_sections(client_from(args))
+        resolved[api.resolve_section(known or [], str(key))] = value
+    return resolved
+
+
 def cmd_lessons_bulk(args: argparse.Namespace) -> None:
     """Write many lessons from a JSON file.
 
@@ -291,9 +314,21 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
             raise UsageError(f"Item {index} is not an object.")
         if "date" not in item:
             raise UsageError(f"Item {index} is missing 'date'.")
+        unknown = set(item) - BULK_KEYS
+        if unknown:
+            raise UsageError(
+                f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
+                f"Accepted: {', '.join(sorted(BULK_KEYS))}."
+            )
         _require_class_id(item, args, index)
 
     client = None if args.dry_run else client_from(args)
+    if client is not None:
+        closed = api.no_school_dates(client)
+        hit = sorted({i["date"] for i in items if i.get("date") in closed})
+        if hit:
+            print(f"warning: no-school day(s) in this batch: {', '.join(hit)}",
+                  file=sys.stderr)
     results, failures = [], 0
     for index, item in enumerate(items):
         try:
@@ -308,6 +343,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 unit_id=item.get("unit_id"),
                 start_time=item.get("start_time"),
                 end_time=item.get("end_time"),
+                sections=_bulk_sections(item, args, index),
                 dry_run=args.dry_run,
             ))
         except PlanbookError as exc:
@@ -584,7 +620,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="print the form payload instead of sending it")
     l.set_defaults(func=cmd_lessons_set)
     l = s_les.add_parser("bulk", help="write many lessons from a JSON file")
-    l.add_argument("file", help="JSON list of lesson objects")
+    l.add_argument("file",
+                   help="JSON list of lesson objects; keys: "
+                        "class_id, date, title, text, homework, notes, "
+                        "unit_id, start_time, end_time, sections")
     l.add_argument("--class-id", dest="class_id",
                    help="default class_id for items that omit one")
     l.add_argument("--keep-going", action="store_true",

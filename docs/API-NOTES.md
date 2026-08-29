@@ -190,3 +190,34 @@ Three separate places carry times:
 - `addEvent` -> `eventStartTime` / `eventEndTime`.
 - the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
   `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
+
+
+## Standards and assignments on a lesson
+
+Both attach through `/updateLesson`, and both only stick to a lesson that already
+exists - on a brand-new date `lessonId` is `0` and the server drops them silently.
+The CLI writes the lesson first, re-reads its `lessonId`, then attaches.
+
+**Standards** travel as `standardDBIds`, using the **`dbId`**, not the human id
+like `3.NBT.A.1`. Verified semantics:
+
+| sent | result |
+|---|---|
+| `standardDBIds=118071` | set becomes exactly `[118071]` - it replaces, not appends |
+| `standardDBIds=118071,118072` | **clears the set** - a comma list is not parsed |
+| repeated `standardDBIds=118071&standardDBIds=118072` | both attach |
+| `standardDBIds=` | clears |
+
+So it is a whole-set replace delivered as repeated form fields. A captured payload
+looks like it sends only one id because duplicate keys collapse when you parse the
+body into a dict - which is exactly the mistake that made this look like an append.
+
+**Assignments** travel as `schoolWorks`, a JSON array:
+
+```json
+[{"type":"ASSIGNMENT","typeId":3865664,"shortValueText":"","longValueText":0}]
+```
+
+They come back on the lesson as `addendums`. An assignment belongs to one class
+(`subjectId`); attaching one from another class is accepted and does nothing, so the
+CLI checks ownership first and refuses.

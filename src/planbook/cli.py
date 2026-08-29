@@ -255,6 +255,8 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
         start_time=args.start_time,
         end_time=args.end_time,
         sections=_sections_from(args, client),
+        standards=args.standard if args.standard else None,
+        assignments=args.assignment if args.assignment else None,
         dry_run=args.dry_run,
     ))
 
@@ -376,7 +378,14 @@ def cmd_settings(args: argparse.Namespace) -> None:
 
 
 def cmd_standards(args: argparse.Namespace) -> None:
-    emit(api.standards(client_from(args)))
+    emit(api.standards(client_from(args), search=args.search or "", raw=args.raw))
+
+
+def cmd_lessons_get(args: argparse.Namespace) -> None:
+    lesson = api.find_lesson(client_from(args), class_id=args.class_id,
+                             date=args.date)
+    emit(lesson if lesson is not None else
+         {"found": False, "class_id": args.class_id, "date": args.date})
 
 
 def cmd_simple_read(args: argparse.Namespace) -> None:
@@ -613,6 +622,12 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--start-time", dest="start_time", metavar="TIME",
                    help="lesson start, e.g. 9:00am or 14:30")
     l.add_argument("--end-time", dest="end_time", metavar="TIME")
+    l.add_argument("--standard", action="append", default=[], metavar="DB_ID",
+                   help="attach a standard by its db_id (see `planbook standards`); "
+                        "repeatable, and replaces whatever was attached")
+    l.add_argument("--assignment", action="append", default=[], metavar="ID",
+                   help="attach an assignment by id (see `planbook assignments`); "
+                        "repeatable, and replaces whatever was attached")
     l.add_argument("--section", action="append", default=[], metavar="KEY=TEXT",
                    help="write a lesson section by number (1-6) or by its label, "
                         "e.g. --section 'Objectives=...'; repeatable")
@@ -634,6 +649,10 @@ def build_parser() -> argparse.ArgumentParser:
         "sections",
         help="show the six lesson sections, their labels and whether they are on")
     l.set_defaults(func=cmd_lessons_sections)
+    l = s_les.add_parser("get", help="read one saved lesson")
+    l.add_argument("--class-id", dest="class_id", required=True)
+    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    l.set_defaults(func=cmd_lessons_get)
     l = s_les.add_parser("delete", help="clear the lesson on one date")
     l.add_argument("--class-id", dest="class_id", required=True)
     l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
@@ -655,6 +674,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("settings", help="account settings")
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("standards", help="standards available to the account")
+    p.add_argument("--search", help="filter by standard id or description text")
+    p.add_argument("--raw", action="store_true")
     p.set_defaults(func=cmd_standards)
     p_td = sub.add_parser("todos", help="list, create, update and delete to-dos")
     s_td = p_td.add_subparsers(dest="todos_command", required=True)

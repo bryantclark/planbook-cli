@@ -113,7 +113,9 @@ def test_bulk_keep_going_records_failure_and_exits_nonzero(tmp_path, capsys, ses
     assert body["written"] == 2
     assert body["failed"] == 1
     assert body["results"][1]["ok"] is False
-    assert len(responses.calls) == 2
+    # Count writes, not every call: the no-school warning also hits the API.
+    writes = [c for c in responses.calls if c.request.url.endswith("/updateLesson")]
+    assert len(writes) == 2
 
 
 def test_argparse_errors_exit_64(capsys, isolated_config):

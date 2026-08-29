@@ -18,6 +18,25 @@ and about ten more have been observed but not wrapped in commands. Run
 
 Anything unmapped is still reachable through `planbook raw`, which POSTs to any path.
 
+## Agent discovery
+
+The point of this tool is that an agent reaches for it on its own when someone says
+"plan my week", without being told the CLI exists. `skills/planbook/SKILL.md` does
+that. Install it once:
+
+```bash
+mkdir -p ~/.claude/skills/planbook
+cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
+```
+
+Or install the whole repo as a plugin (`.claude-plugin/plugin.json`), which ships the
+same skill.
+
+The skill teaches the parts an agent gets wrong unaided: check `auth status` first,
+read real class ids rather than inventing them, `MM/DD/YYYY` dates, `R` is Thursday,
+lessons have six sections, `--dry-run` before bulk writes, and stop on exit 65 rather
+than guessing at a changed API.
+
 ## Install
 
 ```bash

@@ -343,3 +343,19 @@ def test_set_lesson_requires_both_times_together():
     with pytest.raises(UsageError):
         api.set_lesson(None, class_id=1, date="09/01/2026",
                        start_time="9:00", dry_run=True)
+
+
+@responses.activate
+def test_no_school_dates_never_raises():
+    # Advisory: a failed lookup must not stop the write it annotates.
+    responses.post(f"{API_BASE}/getEvents", json={"error": "true", "msg": "nope"})
+    assert api.no_school_dates(PlanbookClient("t.t.t")) == set()
+
+
+@responses.activate
+def test_no_school_dates_collects_marked_days():
+    responses.post(f"{API_BASE}/getEvents", json={"events": [
+        {"eventId": 1, "eventDate": "09/07/2026", "noSchool": True},
+        {"eventId": 2, "eventDate": "09/08/2026", "noSchool": False},
+    ]})
+    assert api.no_school_dates(PlanbookClient("t.t.t")) == {"09/07/2026"}

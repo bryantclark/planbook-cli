@@ -1,0 +1,7 @@
+{
+  "name": "planbook",
+  "version": "0.1.0",
+  "description": "Drive Planbook.com lesson planning from the CLI, with a skill so agents reach for it automatically.",
+  "author": { "name": "Bryant Clark" },
+  "skills": ["./skills/planbook"]
+}

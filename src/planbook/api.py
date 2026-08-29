@@ -296,8 +296,25 @@ def create_class(
                              times=times, lesson_layout_id=lesson_layout_id)
     if dry_run:
         return {"dry_run": True, "endpoint": "/addClass", "payload": payload}
+
+    # /addClass does not report the id it created, and matching by name
+    # afterwards breaks the moment two classes share a name. Diff the ids
+    # instead.
+    before = {str(c.get("cId")) for c in
+              (client.post("/getClasses2") or {}).get("classes") or []}
     client.post("/addClass", payload)
-    return {"ok": True, "name": name, "days": days}
+    after = (client.post("/getClasses2") or {}).get("classes") or []
+    created = [c for c in after if str(c.get("cId")) not in before]
+    result: dict[str, Any] = {"ok": True, "name": name, "days": days}
+    if len(created) == 1:
+        result["class_id"] = created[0].get("cId")
+    else:
+        result["class_id"] = None
+        result["note"] = (
+            "Could not identify the new class id "
+            f"({len(created)} classes appeared). Run `planbook classes list`."
+        )
+    return result
 
 
 def update_class(
@@ -416,6 +433,24 @@ def delete_lesson(
         return {"dry_run": True, "endpoint": "/deleteLesson", "payload": payload}
     client.post("/deleteLesson", payload)
     return {"ok": True, "class_id": payload["classId"], "date": date}
+
+
+def no_school_dates(client: PlanbookClient) -> set[str]:
+    """Dates the calendar marks as no-school.
+
+    Advisory only, so every failure is swallowed: a warning that cannot be
+    computed must never stop the write it was meant to annotate.
+    """
+    dates: set[str] = set()
+    try:
+        for event in list_events(client, limit=1000) or []:
+            if event.get("noSchool"):
+                for key in ("eventDate", "eventCurrentDate"):
+                    if event.get(key):
+                        dates.add(str(event[key]))
+    except Exception:
+        return set()
+    return dates
 
 
 def set_lesson(

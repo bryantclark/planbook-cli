@@ -237,6 +237,16 @@ def cmd_lessons_sections(args: argparse.Namespace) -> None:
     emit(api.lesson_sections(client_from(args)))
 
 
+def _attachments_from(args: argparse.Namespace, client):
+    """Resolve --attach values: a local path is uploaded, a name is looked up."""
+    if not args.attach:
+        return None
+    if client is None:
+        raise UsageError("--attach needs a network connection; drop --dry-run.")
+    return [api.resolve_attachment(client, ref, teacher_id=_teacher_id(args))
+            for ref in args.attach]
+
+
 def cmd_lessons_set(args: argparse.Namespace) -> None:
     # A dry run must not need a session; it is the safe first step.
     client = None if args.dry_run else client_from(args)
@@ -255,6 +265,9 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
         start_time=args.start_time,
         end_time=args.end_time,
         sections=_sections_from(args, client),
+        standards=args.standard if args.standard else None,
+        assignments=args.assignment if args.assignment else None,
+        attach=_attachments_from(args, client),
         dry_run=args.dry_run,
     ))
 
@@ -376,19 +389,35 @@ def cmd_settings(args: argparse.Namespace) -> None:
 
 
 def cmd_standards(args: argparse.Namespace) -> None:
-    emit(api.standards(client_from(args)))
+    emit(api.standards(client_from(args), search=args.search or "", raw=args.raw))
+
+
+def cmd_lessons_get(args: argparse.Namespace) -> None:
+    lesson = api.find_lesson(client_from(args), class_id=args.class_id,
+                             date=args.date)
+    emit(lesson if lesson is not None else
+         {"found": False, "class_id": args.class_id, "date": args.date})
 
 
 def cmd_simple_read(args: argparse.Namespace) -> None:
     emit(api.simple_read(client_from(args), args.command, raw=args.raw))
 
 
-def cmd_attachments(args: argparse.Namespace) -> None:
-    token_info = pbtoken.describe(config.load_session())
-    teacher_id = args.teacher_id or token_info.get("account_id")
+def _teacher_id(args: argparse.Namespace):
+    teacher_id = getattr(args, "teacher_id", None) or \
+        pbtoken.describe(config.load_session()).get("account_id")
     if not teacher_id:
         raise UsageError("Could not determine a teacher id; pass --teacher-id.")
-    emit(api.attachments(client_from(args), teacher_id=teacher_id))
+    return teacher_id
+
+
+def cmd_attachments_list(args: argparse.Namespace) -> None:
+    emit(api.list_attachments(client_from(args), teacher_id=_teacher_id(args)))
+
+
+def cmd_attachments_upload(args: argparse.Namespace) -> None:
+    client = client_from(args)
+    emit([api.upload_attachment(client, f) for f in args.files])
 
 
 def cmd_events_list(args: argparse.Namespace) -> None:
@@ -613,6 +642,16 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--start-time", dest="start_time", metavar="TIME",
                    help="lesson start, e.g. 9:00am or 14:30")
     l.add_argument("--end-time", dest="end_time", metavar="TIME")
+    l.add_argument("--attach", action="append", default=[], metavar="FILE",
+                   help="attach a file: a local path is uploaded first, an "
+                        "existing resource name is linked; repeatable, and "
+                        "replaces whatever was attached")
+    l.add_argument("--standard", action="append", default=[], metavar="DB_ID",
+                   help="attach a standard by its db_id (see `planbook standards`); "
+                        "repeatable, and replaces whatever was attached")
+    l.add_argument("--assignment", action="append", default=[], metavar="ID",
+                   help="attach an assignment by id (see `planbook assignments`); "
+                        "repeatable, and replaces whatever was attached")
     l.add_argument("--section", action="append", default=[], metavar="KEY=TEXT",
                    help="write a lesson section by number (1-6) or by its label, "
                         "e.g. --section 'Objectives=...'; repeatable")
@@ -634,6 +673,10 @@ def build_parser() -> argparse.ArgumentParser:
         "sections",
         help="show the six lesson sections, their labels and whether they are on")
     l.set_defaults(func=cmd_lessons_sections)
+    l = s_les.add_parser("get", help="read one saved lesson")
+    l.add_argument("--class-id", dest="class_id", required=True)
+    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    l.set_defaults(func=cmd_lessons_get)
     l = s_les.add_parser("delete", help="clear the lesson on one date")
     l.add_argument("--class-id", dest="class_id", required=True)
     l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
@@ -655,6 +698,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("settings", help="account settings")
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("standards", help="standards available to the account")
+    p.add_argument("--search", help="filter by standard id or description text")
+    p.add_argument("--raw", action="store_true")
     p.set_defaults(func=cmd_standards)
     p_td = sub.add_parser("todos", help="list, create, update and delete to-dos")
     s_td = p_td.add_subparsers(dest="todos_command", required=True)
@@ -740,10 +785,15 @@ def build_parser() -> argparse.ArgumentParser:
                         help="print the full response envelope")
         rp.set_defaults(func=cmd_simple_read)
 
-    p = sub.add_parser("attachments", help="list uploaded resources")
-    p.add_argument("--teacher-id", dest="teacher_id",
+    p_at = sub.add_parser("attachments", help="upload and list resource files")
+    s_at = p_at.add_subparsers(dest="attachments_command", required=True)
+    a = s_at.add_parser("list", help="list uploaded resources")
+    a.add_argument("--teacher-id", dest="teacher_id",
                    help="defaults to the account id in your token")
-    p.set_defaults(func=cmd_attachments)
+    a.set_defaults(func=cmd_attachments_list)
+    a = s_at.add_parser("upload", help="upload one or more files")
+    a.add_argument("files", nargs="+", help="local file paths")
+    a.set_defaults(func=cmd_attachments_upload)
 
     p = sub.add_parser("endpoints", help="list known API endpoints and how well they are mapped")
     p.set_defaults(func=cmd_endpoints)

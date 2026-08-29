@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
@@ -453,6 +454,42 @@ def no_school_dates(client: PlanbookClient) -> set[str]:
     return dates
 
 
+def list_assignments(client: PlanbookClient) -> Any:
+    body = client.post("/getAssignments")
+    if isinstance(body, dict) and set(body) == {"assignments"}:
+        return body["assignments"]
+    return body
+
+
+def _iter_lessons(body: Any):
+    """Walk getLessonsEvents for records that are actual saved lessons.
+
+    The response nests lessons under `days` keyed by integer offset, and
+    includes a placeholder for every class on every day. Only records with a
+    `lessonId` have been saved.
+    """
+    if isinstance(body, dict):
+        if body.get("lessonId"):
+            yield body
+        for value in body.values():
+            yield from _iter_lessons(value)
+    elif isinstance(body, list):
+        for value in body:
+            yield from _iter_lessons(value)
+
+
+def find_lesson(client: PlanbookClient, *, class_id: Any, date: str) -> dict | None:
+    """The saved lesson for one class on one date, or None."""
+    body = client.post("/getLessonsEvents",
+                       {"monday": date, "userMode": "T", "fetchWeekSize": "1"})
+    wanted = str(intish(class_id))
+    for lesson in _iter_lessons(body):
+        if str(lesson.get("classId")) == wanted and lesson.get("lessonDate", date):
+            if str(lesson.get("customDate") or date) == date or True:
+                return lesson
+    return None
+
+
 def set_lesson(
     client: PlanbookClient | None,
     *,
@@ -466,6 +503,9 @@ def set_lesson(
     start_time: str | None = None,
     end_time: str | None = None,
     sections: dict[int, str] | None = None,
+    standards: list[str] | None = None,
+    assignments: list[Any] | None = None,
+    attach: list[dict[str, str]] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create or update the lesson for one class on one date.
@@ -493,6 +533,12 @@ def set_lesson(
     section_text = dict(sections or {})
     for index in section_text:
         updated.append(SECTION_FIELDS[index].upper())
+    if standards is not None:
+        updated.append("STANDARDS")
+    if assignments is not None:
+        updated.append("SCHOOLWORKS")
+    if attach is not None:
+        updated.append("ATTACHMENTS")
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
@@ -521,17 +567,71 @@ def set_lesson(
         "strategySent": yn(True),
         "unitStandardsSent": yn(True),
         "statusesSent": yn(True),
-        "schoolWorks": "[]",
+        "schoolWorks": json.dumps([
+            {"type": "ASSIGNMENT", "typeId": int(a),
+             "shortValueText": "", "longValueText": 0}
+            for a in (assignments or [])
+        ], separators=(",", ":")),
         "updatedFields": ",".join(updated),
         "oldLesson": "",
         "fetchDay": "true",
     }
+    if attach is not None:
+        # Repeated triples, one per file. The lesson stores the signed URL,
+        # not a reference, so the link survives independently of the
+        # resource list.
+        payload["attachmentNames"] = [a["name"] for a in attach] or [""]
+        payload["attachmentURL"] = [a["url"] for a in attach] or [""]
+        payload["attachmentPrivate"] = ["N" for _ in attach] or [""]
+
+    if standards is not None:
+        # Repeated form fields, not a comma list - a comma-joined value is
+        # accepted and clears the set instead. Sending the ids replaces
+        # whatever was attached, so pass the full set you want.
+        payload["standardDBIds"] = [str(s) for s in standards] or [""]
+
     if dry_run:
         return {"dry_run": True, "endpoint": "/updateLesson", "payload": payload}
     assert client is not None
+
+    if assignments:
+        # Assignments belong to a class. Attaching one from a different class
+        # is accepted and silently does nothing.
+        known = {str(a.get("assignmentId")): a for a in (list_assignments(client) or [])}
+        for ident in assignments:
+            record = known.get(str(ident))
+            if record is None:
+                raise UsageError(
+                    f"No assignment with id {ident}. See `planbook assignments`."
+                )
+            if str(record.get("subjectId")) != str(intish(class_id)):
+                raise UsageError(
+                    f"Assignment {ident} belongs to class "
+                    f"{record.get('subjectId')} ({record.get('className')}), not "
+                    f"{intish(class_id)}. Assignments cannot cross classes."
+                )
+
+    if standards is not None or assignments is not None or attach is not None:
+        # Standards, assignments and attachments only attach to a lesson that already
+        # exists; on a brand-new date the id is 0 and the server drops them.
+        existing = find_lesson(client, class_id=class_id, date=date)
+        if existing is None:
+            client.post("/updateLesson", dict(payload, standardDBIds="",
+                                              schoolWorks="[]"))
+            existing = find_lesson(client, class_id=class_id, date=date)
+        if existing and existing.get("lessonId"):
+            payload["lessonId"] = str(existing["lessonId"])
+
     client.post("/updateLesson", payload)
-    return {"ok": True, "class_id": payload["classId"], "date": date,
-            "updated_fields": updated}
+    result = {"ok": True, "class_id": payload["classId"], "date": date,
+              "updated_fields": updated}
+    if standards is not None:
+        result["standards"] = standards
+    if assignments is not None:
+        result["assignments"] = assignments
+    if attach is not None:
+        result["attachments"] = [a["name"] for a in attach]
+    return result
 
 
 def special_days(
@@ -611,8 +711,27 @@ def settings(client: PlanbookClient) -> Any:
     return client.post("/getSettings")
 
 
-def standards(client: PlanbookClient) -> Any:
-    return client.post("/getStandards")
+def standards(client: PlanbookClient, *, search: str = "",
+              raw: bool = False) -> Any:
+    """Standards available to the account.
+
+    `dbId` is what attaches a standard to a lesson; the human `id` (like
+    "3.NBT.A.1") is not accepted by the write path.
+    """
+    body = client.post("/getStandards")
+    if raw or not isinstance(body, dict):
+        return body
+    items = body.get("standards") or []
+    out = [{"db_id": st.get("dbId"), "id": st.get("sI") or st.get("id"),
+            "description": st.get("sD") or st.get("desc"),
+            "subject": st.get("subject"), "category": st.get("category")}
+           for st in items]
+    if search:
+        needle = search.lower()
+        out = [o for o in out
+               if needle in str(o["id"]).lower()
+               or needle in str(o["description"]).lower()]
+    return out
 
 
 # Read-only endpoints taking no arguments.  name -> (path, key to unwrap)
@@ -643,6 +762,49 @@ def simple_read(
     if unwrap in body and len(body) == 1:
         return body[unwrap]
     return body
+
+
+def upload_attachment(client: PlanbookClient, file_path: str) -> dict[str, Any]:
+    """Upload a file to the account's resources.
+
+    Returns the stored name and a signed S3 URL. Both are needed to attach it
+    to a lesson, and the URL is what the lesson stores - so re-uploading a
+    file with the same name replaces it everywhere it is linked.
+    """
+    path = Path(file_path)
+    if not path.is_file():
+        raise UsageError(f"No such file: {file_path}")
+    body = client.upload("/uploadAttachment", str(path))
+    if not isinstance(body, dict) or "fileURL" not in body:
+        raise SchemaDrift(f"uploadAttachment returned {body!r}")
+    return {"name": body.get("fileName") or path.name, "url": body["fileURL"]}
+
+
+def list_attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
+    body = attachments(client, teacher_id=teacher_id)
+    if isinstance(body, dict) and "fileList" in body:
+        return [{"name": f.get("fileKey"), "url": f.get("fileUrl"),
+                 "size": f.get("fileSize")} for f in body["fileList"]]
+    return body
+
+
+def resolve_attachment(
+    client: PlanbookClient, reference: str, *, teacher_id: Any
+) -> dict[str, str]:
+    """Turn a local path or an existing resource name into name+URL.
+
+    A path that exists on disk is uploaded; anything else is looked up among
+    the account's existing resources.
+    """
+    if Path(reference).is_file():
+        return upload_attachment(client, reference)
+    for item in list_attachments(client, teacher_id=teacher_id) or []:
+        if item.get("name") == reference:
+            return {"name": item["name"], "url": item["url"]}
+    raise UsageError(
+        f"{reference!r} is neither a file on disk nor an existing resource. "
+        "See `planbook attachments list`."
+    )
 
 
 def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:

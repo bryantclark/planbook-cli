@@ -190,3 +190,64 @@ Three separate places carry times:
 - `addEvent` -> `eventStartTime` / `eventEndTime`.
 - the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
   `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
+
+
+## Standards and assignments on a lesson
+
+Both attach through `/updateLesson`, and both only stick to a lesson that already
+exists - on a brand-new date `lessonId` is `0` and the server drops them silently.
+The CLI writes the lesson first, re-reads its `lessonId`, then attaches.
+
+**Standards** travel as `standardDBIds`, using the **`dbId`**, not the human id
+like `3.NBT.A.1`. Verified semantics:
+
+| sent | result |
+|---|---|
+| `standardDBIds=118071` | set becomes exactly `[118071]` - it replaces, not appends |
+| `standardDBIds=118071,118072` | **clears the set** - a comma list is not parsed |
+| repeated `standardDBIds=118071&standardDBIds=118072` | both attach |
+| `standardDBIds=` | clears |
+
+So it is a whole-set replace delivered as repeated form fields. A captured payload
+looks like it sends only one id because duplicate keys collapse when you parse the
+body into a dict - which is exactly the mistake that made this look like an append.
+
+**Assignments** travel as `schoolWorks`, a JSON array:
+
+```json
+[{"type":"ASSIGNMENT","typeId":3865664,"shortValueText":"","longValueText":0}]
+```
+
+They come back on the lesson as `addendums`. An assignment belongs to one class
+(`subjectId`); attaching one from another class is accepted and does nothing, so the
+CLI checks ownership first and refuses.
+
+
+## Attachments
+
+Upload is the only multipart endpoint in the API:
+
+```
+POST /uploadAttachment    multipart, one file part (any field name)
+  -> {"fileName": "...", "fileURL": "https://s3.amazonaws.com/PlanbookAttachments/..."}
+```
+
+The part **must carry a content type**. Without one the server answers
+`Cannot invoke "String.indexOf(String)" because "fileType" is null`, which does not
+hint at the cause.
+
+Linking a file to a lesson is separate, and goes through `/updateLesson` as repeated
+triples - one per file, same shape as standards:
+
+```
+attachmentNames=place-value.txt   attachmentURL=https://s3/...   attachmentPrivate=N
+attachmentNames=pb-test.txt       attachmentURL=https://s3/...   attachmentPrivate=N
+```
+
+The lesson stores the **signed URL**, not a reference to the resource, so a link
+keeps working independently of the resource list - and re-uploading a file under the
+same name replaces the object everywhere it is linked.
+
+Files come back on the lesson as `attachments` with `filename`, `url` and
+`privateFlag`, and in the account-wide list from `/getAttachmentList` as `fileList`
+with `fileKey`, `fileUrl`, `fileSize`.

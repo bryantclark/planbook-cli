@@ -122,6 +122,20 @@ planbook lessons sections
 planbook lessons set --class-id N --date D --section "Objectives=<p>...</p>" --section "4=..."
 ```
 
+Attach standards, assignments and files to a lesson:
+
+```bash
+planbook standards --search "3.NBT"          # find the db_id
+planbook lessons set --class-id N --date D \
+  --standard 118071 --standard 118072 \
+  --assignment 3865664 \
+  --attach ./worksheet.pdf --attach existing-resource.pdf
+```
+
+Each of those **replaces** what was attached, so pass the full set you want. Standards
+use the numeric `db_id`, not the human id. An assignment belongs to one class.
+`--attach` uploads a local path or links an existing resource by name.
+
 Lesson times override the class's usual schedule for that day. Bulk items accept
 `start_time` and `end_time` too.
 

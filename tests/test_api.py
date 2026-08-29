@@ -359,3 +359,44 @@ def test_no_school_dates_collects_marked_days():
         {"eventId": 2, "eventDate": "09/08/2026", "noSchool": False},
     ]})
     assert api.no_school_dates(PlanbookClient("t.t.t")) == {"09/07/2026"}
+
+
+def test_standards_go_as_repeated_fields_not_a_comma_list():
+    # A comma-joined value is accepted and clears the set instead of adding.
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026",
+                             standards=["118071", "118072"],
+                             dry_run=True)["payload"]
+    assert payload["standardDBIds"] == ["118071", "118072"]
+    assert "STANDARDS" in payload["updatedFields"]
+
+
+def test_empty_standards_list_clears_rather_than_omits():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026",
+                             standards=[], dry_run=True)["payload"]
+    assert payload["standardDBIds"] == [""]
+
+
+def test_assignments_become_schoolworks_entries():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026",
+                             assignments=[42], dry_run=True)["payload"]
+    assert json.loads(payload["schoolWorks"]) == [
+        {"type": "ASSIGNMENT", "typeId": 42, "shortValueText": "", "longValueText": 0}
+    ]
+
+
+def test_attachments_go_as_repeated_triples():
+    payload = api.set_lesson(
+        None, class_id=1, date="09/01/2026",
+        attach=[{"name": "a.pdf", "url": "https://s3/a"},
+                {"name": "b.pdf", "url": "https://s3/b"}],
+        dry_run=True)["payload"]
+    assert payload["attachmentNames"] == ["a.pdf", "b.pdf"]
+    assert payload["attachmentURL"] == ["https://s3/a", "https://s3/b"]
+    assert payload["attachmentPrivate"] == ["N", "N"]
+    assert "ATTACHMENTS" in payload["updatedFields"]
+
+
+def test_empty_attach_list_clears():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026", attach=[],
+                             dry_run=True)["payload"]
+    assert payload["attachmentNames"] == [""]

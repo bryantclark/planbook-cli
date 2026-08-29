@@ -11,6 +11,7 @@ consent boundary, and "Always Allow" makes later runs silent.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 from .errors import LoginFailed
 
@@ -20,7 +21,7 @@ KNOWN_BROWSERS = ("brave", "chrome", "edge", "vivaldi", "opera", "firefox", "saf
 TOKEN_SUFFIX = ".accesstoken"
 
 
-def _import_bc():
+def _import_bc() -> Any:
     try:
         import browser_cookie3
     except ImportError as exc:

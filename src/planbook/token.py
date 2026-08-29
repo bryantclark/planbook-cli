@@ -15,7 +15,7 @@ import contextlib
 import json
 import re
 import time
-from typing import Any
+from typing import Any, cast
 
 # The token turns up as a bare JWT, inside a Cookie header, or in a whole
 # "Copy as cURL" paste.
@@ -50,7 +50,7 @@ def claims(token: str) -> dict[str, Any]:
     Planbook double-encodes: `sub` is itself a JSON string.
     """
     try:
-        payload = json.loads(_b64(token.split(".")[1]))
+        payload = cast(dict[str, Any], json.loads(_b64(token.split(".")[1])))
     except Exception:
         return {}
     sub = payload.get("sub")

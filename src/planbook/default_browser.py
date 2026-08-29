@@ -10,6 +10,7 @@ import plistlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 # Bundle identifier -> (display name, path to the executable inside the bundle)
 CHROMIUM_BROWSERS = {
@@ -66,7 +67,7 @@ def default_browser_bundle_id() -> str | None:
     path = Path(_PLIST).expanduser()
     try:
         with path.open("rb") as fh:
-            data = plistlib.load(fh)
+            data = cast(dict[str, Any], plistlib.load(fh))
     except Exception:
         # Falls back to `defaults`, which sometimes reads when plistlib cannot.
         try:
@@ -97,7 +98,7 @@ def default_browser_bundle_id() -> str | None:
                 "LSHandlerRoleViewer"
             )
             if bundle:
-                return bundle.lower()
+                return cast(str, bundle.lower())
     return None
 
 

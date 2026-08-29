@@ -382,3 +382,21 @@ def test_assignments_become_schoolworks_entries():
     assert json.loads(payload["schoolWorks"]) == [
         {"type": "ASSIGNMENT", "typeId": 42, "shortValueText": "", "longValueText": 0}
     ]
+
+
+def test_attachments_go_as_repeated_triples():
+    payload = api.set_lesson(
+        None, class_id=1, date="09/01/2026",
+        attach=[{"name": "a.pdf", "url": "https://s3/a"},
+                {"name": "b.pdf", "url": "https://s3/b"}],
+        dry_run=True)["payload"]
+    assert payload["attachmentNames"] == ["a.pdf", "b.pdf"]
+    assert payload["attachmentURL"] == ["https://s3/a", "https://s3/b"]
+    assert payload["attachmentPrivate"] == ["N", "N"]
+    assert "ATTACHMENTS" in payload["updatedFields"]
+
+
+def test_empty_attach_list_clears():
+    payload = api.set_lesson(None, class_id=1, date="09/01/2026", attach=[],
+                             dry_run=True)["payload"]
+    assert payload["attachmentNames"] == [""]

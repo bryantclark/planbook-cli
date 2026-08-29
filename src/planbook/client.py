@@ -14,6 +14,8 @@ See docs/API-NOTES.md for the full field conventions.
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import sys
 import time
 from typing import Any
@@ -80,6 +82,21 @@ class PlanbookClient:
             keys = ",".join(sorted(payload)) or "-"
             print(f"POST {url} [{keys}]", file=sys.stderr)
         resp = self.http.post(url, data=payload, timeout=self.timeout)
+        return self._check(resp, url)
+
+    def upload(self, path: str, file_path: str) -> Any:
+        """POST a file as multipart. `/uploadAttachment` is the only such endpoint."""
+        url = f"{API_BASE}/{path.lstrip('/')}"
+        name = os.path.basename(file_path)
+        # The part must carry a content type: without one the server fails
+        # with `Cannot invoke "String.indexOf(String)" because "fileType" is
+        # null`, which says nothing about the real cause.
+        content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if self.verbose:
+            print(f"POST {url} [multipart: {name} ({content_type})]", file=sys.stderr)
+        with open(file_path, "rb") as handle:
+            resp = self.http.post(url, files={"file": (name, handle, content_type)},
+                                  timeout=max(self.timeout, 120))
         return self._check(resp, url)
 
     def _check(self, resp: requests.Response, url: str) -> Any:

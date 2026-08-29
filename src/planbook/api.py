@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from .client import PlanbookClient, intish, yn
@@ -504,6 +505,7 @@ def set_lesson(
     sections: dict[int, str] | None = None,
     standards: list[str] | None = None,
     assignments: list[Any] | None = None,
+    attach: list[dict[str, str]] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Create or update the lesson for one class on one date.
@@ -535,6 +537,8 @@ def set_lesson(
         updated.append("STANDARDS")
     if assignments is not None:
         updated.append("SCHOOLWORKS")
+    if attach is not None:
+        updated.append("ATTACHMENTS")
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
@@ -572,6 +576,14 @@ def set_lesson(
         "oldLesson": "",
         "fetchDay": "true",
     }
+    if attach is not None:
+        # Repeated triples, one per file. The lesson stores the signed URL,
+        # not a reference, so the link survives independently of the
+        # resource list.
+        payload["attachmentNames"] = [a["name"] for a in attach] or [""]
+        payload["attachmentURL"] = [a["url"] for a in attach] or [""]
+        payload["attachmentPrivate"] = ["N" for _ in attach] or [""]
+
     if standards is not None:
         # Repeated form fields, not a comma list - a comma-joined value is
         # accepted and clears the set instead. Sending the ids replaces
@@ -599,8 +611,8 @@ def set_lesson(
                     f"{intish(class_id)}. Assignments cannot cross classes."
                 )
 
-    if standards is not None or assignments is not None:
-        # Standards and assignments only attach to a lesson that already
+    if standards is not None or assignments is not None or attach is not None:
+        # Standards, assignments and attachments only attach to a lesson that already
         # exists; on a brand-new date the id is 0 and the server drops them.
         existing = find_lesson(client, class_id=class_id, date=date)
         if existing is None:
@@ -617,6 +629,8 @@ def set_lesson(
         result["standards"] = standards
     if assignments is not None:
         result["assignments"] = assignments
+    if attach is not None:
+        result["attachments"] = [a["name"] for a in attach]
     return result
 
 
@@ -748,6 +762,49 @@ def simple_read(
     if unwrap in body and len(body) == 1:
         return body[unwrap]
     return body
+
+
+def upload_attachment(client: PlanbookClient, file_path: str) -> dict[str, Any]:
+    """Upload a file to the account's resources.
+
+    Returns the stored name and a signed S3 URL. Both are needed to attach it
+    to a lesson, and the URL is what the lesson stores - so re-uploading a
+    file with the same name replaces it everywhere it is linked.
+    """
+    path = Path(file_path)
+    if not path.is_file():
+        raise UsageError(f"No such file: {file_path}")
+    body = client.upload("/uploadAttachment", str(path))
+    if not isinstance(body, dict) or "fileURL" not in body:
+        raise SchemaDrift(f"uploadAttachment returned {body!r}")
+    return {"name": body.get("fileName") or path.name, "url": body["fileURL"]}
+
+
+def list_attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
+    body = attachments(client, teacher_id=teacher_id)
+    if isinstance(body, dict) and "fileList" in body:
+        return [{"name": f.get("fileKey"), "url": f.get("fileUrl"),
+                 "size": f.get("fileSize")} for f in body["fileList"]]
+    return body
+
+
+def resolve_attachment(
+    client: PlanbookClient, reference: str, *, teacher_id: Any
+) -> dict[str, str]:
+    """Turn a local path or an existing resource name into name+URL.
+
+    A path that exists on disk is uploaded; anything else is looked up among
+    the account's existing resources.
+    """
+    if Path(reference).is_file():
+        return upload_attachment(client, reference)
+    for item in list_attachments(client, teacher_id=teacher_id) or []:
+        if item.get("name") == reference:
+            return {"name": item["name"], "url": item["url"]}
+    raise UsageError(
+        f"{reference!r} is neither a file on disk nor an existing resource. "
+        "See `planbook attachments list`."
+    )
 
 
 def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:

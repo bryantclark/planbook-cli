@@ -221,3 +221,33 @@ body into a dict - which is exactly the mistake that made this look like an appe
 They come back on the lesson as `addendums`. An assignment belongs to one class
 (`subjectId`); attaching one from another class is accepted and does nothing, so the
 CLI checks ownership first and refuses.
+
+
+## Attachments
+
+Upload is the only multipart endpoint in the API:
+
+```
+POST /uploadAttachment    multipart, one file part (any field name)
+  -> {"fileName": "...", "fileURL": "https://s3.amazonaws.com/PlanbookAttachments/..."}
+```
+
+The part **must carry a content type**. Without one the server answers
+`Cannot invoke "String.indexOf(String)" because "fileType" is null`, which does not
+hint at the cause.
+
+Linking a file to a lesson is separate, and goes through `/updateLesson` as repeated
+triples - one per file, same shape as standards:
+
+```
+attachmentNames=place-value.txt   attachmentURL=https://s3/...   attachmentPrivate=N
+attachmentNames=pb-test.txt       attachmentURL=https://s3/...   attachmentPrivate=N
+```
+
+The lesson stores the **signed URL**, not a reference to the resource, so a link
+keeps working independently of the resource list - and re-uploading a file under the
+same name replaces the object everywhere it is linked.
+
+Files come back on the lesson as `attachments` with `filename`, `url` and
+`privateFlag`, and in the account-wide list from `/getAttachmentList` as `fileList`
+with `fileKey`, `fileUrl`, `fileSize`.

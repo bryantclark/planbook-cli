@@ -65,9 +65,19 @@ def cmd_raw(args: argparse.Namespace) -> None:
         key, value = pair.split("=", 1)
         payload[key] = value
     if args.dry_run:
-        emit({"dry_run": True, "endpoint": args.path, "payload": payload})
+        emit(
+            {
+                "dry_run": True,
+                "method": "GET" if args.get else ("POST-json" if args.json else "POST"),
+                "endpoint": args.path,
+                "payload": payload,
+            }
+        )
         return
-    emit(client_from(args).post(args.path, payload))
+    client = client_from(args)
+    emit(
+        client.get(args.path, payload) if args.get else client.post(args.path, payload)
+    )
 
 
 # --------------------------------------------------------------------------

@@ -69,7 +69,6 @@ SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
     "schools": ("/getSchools", "schools"),
-    "templates": ("/services/planbook/template/get", "templates"),
     "notes": ("/services/planbook/newNote/filterNotes", None),
     "students": ("/services/planbook/student/getAllFromSchool", None),
     "standards-report": ("/getStandardsReport", None),

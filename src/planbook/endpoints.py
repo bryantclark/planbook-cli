@@ -21,7 +21,7 @@ ENDPOINTS = [
     # Lessons
     ("/updateLesson", "mapped", "Upsert a lesson by class + date"),
     ("/deleteLesson", "mapped", "Clear the lesson on one date"),
-    ("/getLessonsEvents", "partial", "Lessons+events by week; `days` shape undecoded"),
+    ("/getLessonsEvents", "mapped", "Lessons and events by week, grouped by day"),
     ("/copyLesson", "observed", "Copy lessons (yearId, sharedYearId, subjectIds)"),
     ("/bumpLesson", "observed", "Bump/shift lessons"),
     # Units
@@ -52,8 +52,12 @@ ENDPOINTS = [
     ("/getSchools", "mapped", "Schools"),
     ("/getCommentsTo", "mapped", "Comments addressed to the user"),
     ("/getAttachmentList", "mapped", "Uploaded resources"),
-    ("/services/planbook/template/get", "observed", "Lesson templates; needs args"),
-    ("/services/planbook/student/getAllFromSchool", "observed", "Students"),
+    ("/services/planbook/template/get", "mapped", "Lesson templates (GET, teacherId)"),
+    (
+        "/services/planbook/student/getAllFromSchool",
+        "mapped",
+        "Every student on the account",
+    ),
     (
         "/services/planbook/unarchiveYear/getUnarchivalStatus",
         "observed",
@@ -61,6 +65,24 @@ ENDPOINTS = [
     ),
     ("/services/planbook/googleclassroom", "observed", "Google Classroom link"),
     ("/connectServlet", "observed", "Third-party connect flow"),
+    # People
+    ("/getStudentsServlet", "mapped", "Students in one class"),
+    ("/addStudentServlet", "mapped", "Create a student"),
+    ("/updateStudentServlet", "mapped", "Update a student"),
+    ("/deleteStudentServlet", "mapped", "Delete a student"),
+    ("/getStudentScoresServlet", "mapped", "Grade periods and scored assignments"),
+    ("/services/planbook/attendance/get", "mapped", "Attendance (GET; read-only)"),
+    (
+        "/services/planbook/attendance/getLessonsByDate",
+        "observed",
+        "Attendance day view",
+    ),
+    ("/services/planbook/student/studentsTagged", "observed", "Tagged students (GET)"),
+    ("/addTemplate", "observed", "Create a lesson template"),
+    ("/updateTemplate", "observed", "Update a lesson template"),
+    ("/deleteTemplate", "observed", "Delete a lesson template"),
+    ("/bumpLesson", "observed", "Shift lessons forward"),
+    ("/extendLesson", "observed", "Extend a lesson across days"),
     # Gated
     ("/services/api/stickers", "observed", "Stickers"),
     ("/services/api/referencedata/maintenanceData", "observed", "Reference data"),

@@ -544,3 +544,42 @@ def test_read_week_dates_come_from_the_day_not_the_lesson():
     week = api.read_week(PlanbookClient("t.t.t"), monday="09/07/2026")
     assert week[0]["date"] == "09/07/2026"
     assert [x["class_name"] for x in week[0]["lessons"]] == ["Math"]
+
+
+def test_student_payload_omits_id_when_creating():
+    payload = api.student_payload(first_name="Ada", last_name="Lovelace")
+    assert "studentId" not in payload
+    assert payload["studentFirstName"] == "Ada"
+    assert payload["userMode"] == "T"
+
+
+def test_student_payload_includes_id_when_updating():
+    payload = api.student_payload(first_name="Ada", last_name="Lovelace", student_id=7)
+    assert payload["studentId"] == "7"
+
+
+@responses.activate
+def test_list_students_normalizes_both_shapes():
+    # Account-wide returns {id: "Last, First"}; per-class returns records.
+    responses.post(
+        f"{API_BASE}/services/planbook/student/getAllFromSchool",
+        json={"2139917": "Lovelace, Ada"},
+    )
+    everyone = api.list_students(PlanbookClient("t.t.t"))
+    assert everyone == [
+        {"id": 2139917, "name": "Lovelace, Ada", "last_name": "Lovelace"}
+    ]
+
+    responses.post(
+        f"{API_BASE}/getStudentsServlet",
+        json={"students": [{"studentId": 1, "firstName": "Ada", "lastName": "L"}]},
+    )
+    in_class = api.list_students(PlanbookClient("t.t.t"), class_id=5)
+    assert in_class[0]["first_name"] == "Ada"
+
+
+@responses.activate
+def test_list_students_rejects_a_shape_it_does_not_recognise():
+    responses.post(f"{API_BASE}/getStudentsServlet", json={"nope": []})
+    with pytest.raises(SchemaDrift):
+        api.list_students(PlanbookClient("t.t.t"), class_id=5)

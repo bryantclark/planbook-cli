@@ -79,6 +79,15 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_simple_read,
         cmd_standards,
     )
+    from .commands.people import (
+        cmd_attendance,
+        cmd_grades,
+        cmd_students_create,
+        cmd_students_delete,
+        cmd_students_list,
+        cmd_students_update,
+        cmd_templates,
+    )
     from .commands.todos import (
         cmd_todos_create,
         cmd_todos_delete,
@@ -432,8 +441,45 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_delete)
 
+    p_st = sub.add_parser("students", help="list, create, update and delete students")
+    s_st = p_st.add_subparsers(dest="students_command", required=True)
+    st = s_st.add_parser("list", help="students in a class, or all of them")
+    st.add_argument(
+        "--class-id", dest="class_id", help="omit for every student on the account"
+    )
+    st.set_defaults(func=cmd_students_list)
+    for verb, fn in (("create", cmd_students_create), ("update", cmd_students_update)):
+        st = s_st.add_parser(verb, help=f"{verb} a student")
+        if verb == "update":
+            st.add_argument("--student-id", dest="student_id", required=True)
+        st.add_argument("--first-name", dest="first_name", required=True)
+        st.add_argument("--last-name", dest="last_name", required=True)
+        st.add_argument("--middle-name", dest="middle_name")
+        st.add_argument("--code", help="student id/code used by the school")
+        st.add_argument("--email")
+        st.add_argument("--parent-email", dest="parent_email")
+        st.add_argument("--phone")
+        st.add_argument("--birthdate", metavar="MM/DD/YYYY")
+        st.set_defaults(func=fn)
+    st = s_st.add_parser("delete", help="delete a student")
+    st.add_argument("student_id")
+    st.set_defaults(func=cmd_students_delete)
+
+    p = sub.add_parser("attendance", help="read attendance for a class on a date")
+    p.add_argument("--class-id", dest="class_id", required=True)
+    p.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    p.set_defaults(func=cmd_attendance)
+
+    p = sub.add_parser("grades", help="grade periods and scored assignments")
+    p.add_argument("--class-id", dest="class_id", required=True)
+    p.set_defaults(func=cmd_grades)
+
+    p = sub.add_parser("templates", help="lesson templates")
+    p.add_argument("--teacher-id", dest="teacher_id")
+    p.set_defaults(func=cmd_templates)
+
     for name, (path, _unwrap) in api.SIMPLE_READS.items():
-        if name in ("events", "units", "todos"):
+        if name in ("events", "units", "todos", "students"):
             continue
         rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
         rp.add_argument(
@@ -470,6 +516,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="KEY=VALUE",
         help="form field; repeatable",
+    )
+    p.add_argument(
+        "--get",
+        action="store_true",
+        help="send as GET; some /services/planbook/** endpoints are GET-only "
+        "and answer a POST with 405",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="send fields as a JSON body; a few service endpoints reject form "
+        "encoding with \"A JSONObject text must begin with '{'\"",
     )
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_raw)

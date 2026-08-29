@@ -98,6 +98,7 @@ def test_raw_dry_run_does_not_touch_auth(capsys, isolated_config):
     assert code == 0
     assert body == {
         "dry_run": True,
+        "method": "POST",
         "endpoint": "/getAssignments",
         "payload": {"teacherId": "123"},
     }

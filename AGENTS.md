@@ -50,7 +50,11 @@ Run `planbook <group> --help` for exact flags. Groups:
 | `events` | `list`, `create`, `delete` |
 | `todos` | `list`, `create`, `update`, `delete` |
 | reads | `assignments`, `assessments`, `schools`, `templates`, `notes`, `students`, `standards`, `standards-report`, `comments`, `attachments`, `settings`, `schedule special-days` |
-| `raw` | POST to any endpoint |
+| `students` | `list`, `create`, `update`, `delete` |
+| `attendance` | read attendance for a class on a date (read-only) |
+| `grades` | grade periods and scored assignments |
+| `templates` | lesson templates |
+| `raw` | POST to any endpoint; `--get` for GET-only paths, `--json` for JSON bodies |
 | `endpoints` | what is mapped and what is not |
 
 ### Authentication

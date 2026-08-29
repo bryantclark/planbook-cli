@@ -179,14 +179,9 @@ def test_update_class_replaces_schedule_when_days_given():
 
 def test_class_payload_uses_yn_not_true_false():
     # true/false is accepted and silently produces a class teaching no days.
-    payload = api.create_class(
-        None,
-        name="X",
-        start_date="08/31/2026",
-        end_date="06/06/2027",
-        days=["monday"],
-        dry_run=True,
-    )["payload"]
+    payload = api.class_payload(
+        name="X", start_date="08/31/2026", end_date="06/06/2027", days=["monday"]
+    )
     assert payload["mondayTeach"] == "Y"
     assert payload["tuesdayTeach"] == "N"
     assert payload["verifyShift"] == "false"
@@ -194,41 +189,35 @@ def test_class_payload_uses_yn_not_true_false():
 
 def test_event_payload_commits_rather_than_only_validating():
     # verifyShift="true" answers exactly like success and writes nothing.
-    payload = api.create_event(None, title="X", date="09/15/2026", dry_run=True)[
-        "payload"
-    ]
+    payload = api.event_payload(
+        {"eventTitle": "X", "eventDate": "09/15/2026", "endDate": "09/15/2026"}
+    )
     assert payload["verifyShift"] == "false"
     assert payload["eventCurrentDate"] == ""
     assert payload["shiftLessons"] == "N"
 
 
 def test_unit_payload_sends_class_id_as_subject_id():
-    payload = api.create_unit(None, class_id=99, number="U1", title="T", dry_run=True)[
-        "payload"
-    ]
+    payload = api.unit_payload(action="A", class_id=99, number="U1", title="T")
     assert payload["subjectId"] == "99"
     assert payload["action"] == "A"
 
 
 def test_delete_lesson_payload():
-    payload = api.delete_lesson(None, class_id=7, date="09/01/2026", dry_run=True)[
-        "payload"
-    ]
+    payload = {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
     assert payload == {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
 
 
 @responses.activate
 def test_set_lesson_dry_run_builds_payload_without_network():
-    result = api.set_lesson(
-        None,
+    result = api.lesson_payload(
         class_id=123,
         date="09/03/2026",
         title="Photosynthesis",
         text="<p>Light reactions.</p>",
-        dry_run=True,
     )
     assert len(responses.calls) == 0
-    payload = result["payload"]
+    payload = result[0]
     for key in ["unitId", "extraLesson", "lessonId", "linkedLessonId"]:
         assert payload[key] == "0"
     assert payload["lessonLock"] == "N"
@@ -242,19 +231,14 @@ def test_set_lesson_dry_run_builds_payload_without_network():
 
 def test_set_lesson_requires_at_least_one_content_field():
     with pytest.raises(UsageError):
-        api.set_lesson(None, class_id=123, date="09/03/2026", dry_run=True)
+        api.lesson_payload(class_id=123, date="09/03/2026")
 
 
 def test_set_lesson_updated_fields_are_ordered_and_uppercase():
-    result = api.set_lesson(
-        None,
-        class_id=123,
-        date="09/03/2026",
-        title="Title",
-        text="Text",
-        dry_run=True,
+    result = api.lesson_payload(
+        class_id=123, date="09/03/2026", title="Title", text="Text"
     )
-    assert result["payload"]["updatedFields"] == "LESSONTITLE,LESSONTEXT"
+    assert result[0]["updatedFields"] == "LESSONTITLE,LESSONTEXT"
 
 
 @responses.activate
@@ -322,14 +306,9 @@ def test_parse_day_times_whole_week_and_per_day():
 
 
 def test_set_lesson_normalizes_times_and_marks_them_updated():
-    payload = api.set_lesson(
-        None,
-        class_id=1,
-        date="09/01/2026",
-        start_time="14:30",
-        end_time="15:20",
-        dry_run=True,
-    )["payload"]
+    payload = api.lesson_payload(
+        class_id=1, date="09/01/2026", start_time="14:30", end_time="15:20"
+    )[0]
     assert payload["customStart"] == "2:30 PM"
     assert payload["customEnd"] == "3:20 PM"
     assert "CUSTOMSTART" in payload["updatedFields"]
@@ -359,9 +338,9 @@ def test_resolve_section_by_number_and_label():
 
 
 def test_set_lesson_writes_arbitrary_sections():
-    payload = api.set_lesson(
-        None, class_id=1, date="09/01/2026", sections={1: "a", 4: "b"}, dry_run=True
-    )["payload"]
+    payload = api.lesson_payload(
+        class_id=1, date="09/01/2026", sections={1: "a", 4: "b"}
+    )[0]
     assert payload["lessonText"] == "a"
     assert payload["tab4Text"] == "b"
     assert "TAB4TEXT" in payload["updatedFields"]
@@ -430,9 +409,7 @@ def test_update_class_keeps_earlier_schedule_rows_untouched():
 
 def test_set_lesson_requires_both_times_together():
     with pytest.raises(UsageError):
-        api.set_lesson(
-            None, class_id=1, date="09/01/2026", start_time="9:00", dry_run=True
-        )
+        api.lesson_payload(class_id=1, date="09/01/2026", start_time="9:00")
 
 
 @responses.activate
@@ -458,44 +435,34 @@ def test_no_school_dates_collects_marked_days():
 
 def test_standards_go_as_repeated_fields_not_a_comma_list():
     # A comma-joined value is accepted and clears the set instead of adding.
-    payload = api.set_lesson(
-        None,
-        class_id=1,
-        date="09/01/2026",
-        standards=["118071", "118072"],
-        dry_run=True,
-    )["payload"]
+    payload = api.lesson_payload(
+        class_id=1, date="09/01/2026", standards=["118071", "118072"]
+    )[0]
     assert payload["standardDBIds"] == ["118071", "118072"]
     assert "STANDARDS" in payload["updatedFields"]
 
 
 def test_empty_standards_list_clears_rather_than_omits():
-    payload = api.set_lesson(
-        None, class_id=1, date="09/01/2026", standards=[], dry_run=True
-    )["payload"]
+    payload = api.lesson_payload(class_id=1, date="09/01/2026", standards=[])[0]
     assert payload["standardDBIds"] == [""]
 
 
 def test_assignments_become_schoolworks_entries():
-    payload = api.set_lesson(
-        None, class_id=1, date="09/01/2026", assignments=[42], dry_run=True
-    )["payload"]
+    payload = api.lesson_payload(class_id=1, date="09/01/2026", assignments=[42])[0]
     assert json.loads(payload["schoolWorks"]) == [
         {"type": "ASSIGNMENT", "typeId": 42, "shortValueText": "", "longValueText": 0}
     ]
 
 
 def test_attachments_go_as_repeated_triples():
-    payload = api.set_lesson(
-        None,
+    payload = api.lesson_payload(
         class_id=1,
         date="09/01/2026",
         attach=[
             {"name": "a.pdf", "url": "https://s3/a"},
             {"name": "b.pdf", "url": "https://s3/b"},
         ],
-        dry_run=True,
-    )["payload"]
+    )[0]
     assert payload["attachmentNames"] == ["a.pdf", "b.pdf"]
     assert payload["attachmentURL"] == ["https://s3/a", "https://s3/b"]
     assert payload["attachmentPrivate"] == ["N", "N"]
@@ -503,9 +470,7 @@ def test_attachments_go_as_repeated_triples():
 
 
 def test_empty_attach_list_clears():
-    payload = api.set_lesson(
-        None, class_id=1, date="09/01/2026", attach=[], dry_run=True
-    )["payload"]
+    payload = api.lesson_payload(class_id=1, date="09/01/2026", attach=[])[0]
     assert payload["attachmentNames"] == [""]
 
 
@@ -513,36 +478,69 @@ def test_empty_attach_list_clears():
 def test_no_school_event_refuses_to_delete_existing_lessons():
     # Marking a day no-school deletes its lessons permanently; deleting the
     # event afterwards does not bring them back.
-    responses.post(f"{API_BASE}/getLessonsEvents", json={"days": [
-        {"date": "09/07/2026", "dayOfWeek": "Monday", "objects": [
-            {"classId": 1, "className": "Math", "lessonId": 99,
-             "lessonTitle": "Place value"},
-        ]},
-    ]})
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/07/2026",
+                    "dayOfWeek": "Monday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 99,
+                            "lessonTitle": "Place value",
+                        },
+                    ],
+                },
+            ]
+        },
+    )
     with pytest.raises(UsageError, match="deletes them permanently"):
-        api.create_event(PlanbookClient("t.t.t"), title="Holiday",
-                         date="09/07/2026", no_school=True)
+        api.create_event(
+            PlanbookClient("t.t.t"), title="Holiday", date="09/07/2026", no_school=True
+        )
 
 
 @responses.activate
 def test_no_school_event_allowed_with_force():
     responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
     responses.post(f"{API_BASE}/addEvent", json={"events": []})
-    result = api.create_event(PlanbookClient("t.t.t"), title="Holiday",
-                              date="09/07/2026", no_school=True, force=True)
+    result = api.create_event(
+        PlanbookClient("t.t.t"),
+        title="Holiday",
+        date="09/07/2026",
+        no_school=True,
+        force=True,
+    )
     assert result["ok"] is True
 
 
 @responses.activate
 def test_read_week_dates_come_from_the_day_not_the_lesson():
     # Lessons carry no date of their own.
-    responses.post(f"{API_BASE}/getLessonsEvents", json={"days": [
-        {"date": "09/07/2026", "dayOfWeek": "Monday", "objects": [
-            {"classId": 1, "className": "Math", "lessonId": 5,
-             "lessonTitle": "T", "startTime": "9:00 AM"},
-            {"classId": 2, "className": "Art"},          # no lessonId: unsaved
-        ]},
-    ]})
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/07/2026",
+                    "dayOfWeek": "Monday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 5,
+                            "lessonTitle": "T",
+                            "startTime": "9:00 AM",
+                        },
+                        {"classId": 2, "className": "Art"},  # no lessonId: unsaved
+                    ],
+                },
+            ]
+        },
+    )
     week = api.read_week(PlanbookClient("t.t.t"), monday="09/07/2026")
     assert week[0]["date"] == "09/07/2026"
     assert [x["class_name"] for x in week[0]["lessons"]] == ["Math"]

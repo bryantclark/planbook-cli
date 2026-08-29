@@ -10,20 +10,16 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import requests
 
-from . import __version__, api, auth, browser_auth, browser_cookies, config
-from . import token as pbtoken
+from . import __version__, api, browser_cookies, config
 from .client import PlanbookClient
-from .endpoints import ENDPOINTS
-from .errors import NotAuthenticated, PlanbookError, UsageError
+from .errors import PlanbookError, UsageError
 
 
 def emit(value: Any) -> None:
@@ -35,621 +31,67 @@ def client_from(args: argparse.Namespace) -> PlanbookClient:
     return PlanbookClient(config.load_session(), verbose=args.verbose)
 
 
-def cmd_auth_login(args: argparse.Namespace) -> None:
-    username = args.username or input("Email or user ID: ").strip()
-    # Read from the TTY: never logged, never in argv, never stored.
-    password = getpass.getpass("Password: ")
-    cookie = auth.login(username, password)
-    path = config.save_session(cookie, username)
-    emit({"ok": True, "stored": str(path), "username": username})
-
-
-def cmd_auth_token(args: argparse.Namespace) -> None:
-    """Store a Planbook access token copied out of a signed-in browser.
-
-    Accepts a bare JWT, a Cookie header, or a "Copy as cURL" paste. Verifies
-    first, so a bad token fails here rather than three commands later.
-    """
-    raw = args.value or getpass.getpass("Paste token, cookie, or curl: ")
-    value = pbtoken.extract(raw)
-    if not value:
-        raise UsageError(
-            "No access token found in that input.\n"
-            "Paste the JWT itself, or a request copied with DevTools -> "
-            "Network -> right-click a call to api.planbook.com -> Copy as cURL. "
-            "The token is the cookie named U|...|.accesstoken - NOT the SESSION "
-            "cookie, which is not what authenticates you."
-        )
-
-    info = pbtoken.describe(value)
-    if pbtoken.is_expired(value):
-        raise UsageError(
-            "That token has already expired. Reload Planbook in your browser "
-            "and copy a fresh one."
-        )
-
-    if not args.no_verify:
-        client = PlanbookClient(value, verbose=args.verbose)
-        api.list_classes(client)  # raises NotAuthenticated if the token is bad
-
-    path = config.save_session(value, info.get("email"))
-    emit(
-        {
-            "ok": True,
-            "stored": str(path),
-            "verified": not args.no_verify,
-            "email": info.get("email"),
-            "expires_in_hours": info.get("expires_in_hours"),
-        }
-    )
-
-
-def cmd_auth_import(args: argparse.Namespace) -> None:
-    """Read the access token from a browser the user is already signed in to.
-
-    The recommended path: nothing is automated and nothing is copied by hand.
-    """
-    from .default_browser import default_browser_name
-
-    preferred = args.browser
-    if not preferred:
-        name = default_browser_name()
-        if name:
-            preferred = name.split()[0].lower()
-
-    for browser, candidate in browser_cookies.search(preferred):
-        if pbtoken.is_expired(candidate):
-            continue
-        client = PlanbookClient(candidate, verbose=args.verbose)
-        try:
-            api.list_classes(client)
-        except NotAuthenticated:
-            continue  # stale token from an old sign-in; try the next browser
-        info = pbtoken.describe(candidate)
-        path = config.save_session(candidate, info.get("email"))
-        emit(
-            {
-                "ok": True,
-                "stored": str(path),
-                "source": browser,
-                "email": info.get("email"),
-                "expires_in_hours": info.get("expires_in_hours"),
-            }
-        )
-        return
-
-    report = browser_cookies.diagnose()
-    lines = "\n".join(f"  {b:8} {status}" for b, status in report.items())
-    from .errors import SIGN_IN_URL
-
-    raise UsageError(
-        "No usable Planbook token found in any local browser.\n" + lines + "\n\n"
-        f"Sign in at {SIGN_IN_URL} first, then run `planbook auth import` again.\n"
-        "If a browser above says 'locked', macOS denied Keychain access - rerun "
-        "and choose Always Allow.\n"
-        "If you would rather not grant that, use `planbook auth token` instead."
-    )
-
-
-def cmd_auth_browser(args: argparse.Namespace) -> None:
-    """Sign in by opening a browser and waiting for the user to do it.
-
-    Discouraged (see README), but kept: it needs no manual copying, and would
-    become the good path if Planbook ever registered an OAuth client.
-    """
-    if args.interactive:
-        value = browser_auth.login_via_browser(
-            timeout=args.timeout, channel=args.channel, profile=args.profile
-        )
-        interactive = True
-    else:
-        value, interactive = browser_auth.refresh_or_login(
-            timeout=args.timeout, channel=args.channel, profile=args.profile
-        )
-    info = pbtoken.describe(value)
-    path = config.save_session(value, info.get("email"))
-    emit(
-        {
-            "ok": True,
-            "stored": str(path),
-            "method": "browser",
-            "interactive": interactive,
-            "email": info.get("email"),
-            "expires_in_hours": info.get("expires_in_hours"),
-        }
-    )
-
-
-def cmd_auth_status(args: argparse.Namespace) -> None:
-    raw = config.load_session()
-    info = pbtoken.describe(raw)
-    client = PlanbookClient(raw, verbose=args.verbose)
-    body = api.list_classes(client)
-    emit(
-        {
-            "authenticated": True,
-            "source": "env" if config.TOKEN_ENV in os.environ else "file",
-            "email": info.get("email"),
-            "account_id": info.get("account_id"),
-            "expires_in_hours": info.get("expires_in_hours"),
-            "current_year_id": body["current_year_id"],
-            "class_count": len(body["classes"]),
-        }
-    )
-
-
-def cmd_auth_logout(_args: argparse.Namespace) -> None:
-    emit({"cleared": config.clear_session()})
-
-
-def cmd_classes_list(args: argparse.Namespace) -> None:
-    emit(api.list_classes(client_from(args), raw=args.raw))
-
-
-def cmd_classes_create(args: argparse.Namespace) -> None:
-    # Validate before touching auth: a typo in --days should be a usage error,
-    # not a demand that you sign in first.
-    days = api.parse_days(args.days)
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.create_class(
-            client,
-            name=args.name,
-            start_date=args.start,
-            end_date=args.end,
-            days=days,
-            color=args.color,
-            description=args.description or "",
-            times=api.parse_day_times(args.time, days),
-            lesson_layout_id=args.lesson_layout_id,
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_classes_update(args: argparse.Namespace) -> None:
-    days = api.parse_days(args.days) if args.days else None
-    if args.time and any("=" not in spec for spec in args.time) and days is None:
-        raise UsageError(
-            "A bare --time needs --days to know which days it applies to. "
-            "Use --time M=9:00-9:50 to set one day without changing the schedule."
-        )
-    emit(
-        api.update_class(
-            client_from(args),
-            class_id=args.class_id,
-            name=args.name,
-            start_date=args.start,
-            end_date=args.end,
-            days=days,
-            color=args.color,
-            description=args.description,
-            times=api.parse_day_times(args.time, days) if args.time else None,
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_classes_get(args: argparse.Namespace) -> None:
-    emit(api.get_class(client_from(args), args.class_id))
-
-
-def _sections_from(args: argparse.Namespace, client) -> dict[int, str] | None:
-    """Resolve --section SPEC values to section indexes.
-
-    Labels come from the account's lesson layout, so this only fetches
-    settings when a label (rather than a number) is actually used.
-    """
-    if not args.section:
-        return None
-    resolved: dict[int, str] = {}
-    known = None
-    for spec in args.section:
-        key, sep, value = spec.partition("=")
-        if not sep:
-            raise UsageError(
-                f"--section {spec!r} needs KEY=TEXT, e.g. 4=... or Homework=..."
-            )
-        if not key.strip().isdigit() and known is None:
-            known = api.lesson_sections(client or client_from(args))
-        resolved[api.resolve_section(known or [], key)] = value
-    return resolved
-
-
-def cmd_lessons_sections(args: argparse.Namespace) -> None:
-    emit(api.lesson_sections(client_from(args)))
-
-
-def _attachments_from(args: argparse.Namespace, client):
-    """Resolve --attach values: a local path is uploaded, a name is looked up."""
-    if not args.attach:
-        return None
-    if client is None:
-        raise UsageError("--attach needs a network connection; drop --dry-run.")
-    return [
-        api.resolve_attachment(client, ref, teacher_id=_teacher_id(args))
-        for ref in args.attach
-    ]
-
-
-def cmd_lessons_set(args: argparse.Namespace) -> None:
-    # A dry run must not need a session; it is the safe first step.
-    client = None if args.dry_run else client_from(args)
-    if client is not None and args.date in api.no_school_dates(client):
-        print(f"warning: {args.date} is marked as a no-school day.", file=sys.stderr)
-    emit(
-        api.set_lesson(
-            client,
-            class_id=args.class_id,
-            date=args.date,
-            title=args.title,
-            text=args.text,
-            homework=args.homework,
-            notes=args.notes,
-            unit_id=args.unit_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
-            sections=_sections_from(args, client),
-            standards=args.standard if args.standard else None,
-            assignments=args.assignment if args.assignment else None,
-            attach=_attachments_from(args, client),
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def _require_class_id(item: dict, args: argparse.Namespace, index: int) -> Any:
-    """A missing class id is a user error, not a zero.
-
-    `intish` turns absent integers into "0" because that is what the API
-    wants for genuinely optional ids. Letting that default through here
-    would post lessons to class 0.
-    """
-    class_id = item.get("class_id", args.class_id)
-    if class_id in (None, ""):
-        raise UsageError(f"Item {index} has no class_id and --class-id was not given.")
-    return class_id
-
-
-BULK_KEYS = {
-    "class_id",
-    "date",
-    "title",
-    "text",
-    "homework",
-    "notes",
-    "unit_id",
-    "start_time",
-    "end_time",
-    "sections",
-}
-
-
-def _bulk_sections(item: dict, args: argparse.Namespace, index: int):
-    """Read a bulk item's `sections` map, resolving labels the same as --section."""
-    raw = item.get("sections")
-    if raw is None:
-        return None
-    if not isinstance(raw, dict):
-        raise UsageError(f"Item {index}: `sections` must be an object.")
-    known = None
-    resolved = {}
-    for key, value in raw.items():
-        if not str(key).strip().isdigit() and known is None:
-            known = api.lesson_sections(client_from(args))
-        resolved[api.resolve_section(known or [], str(key))] = value
-    return resolved
-
-
-def cmd_lessons_bulk(args: argparse.Namespace) -> None:
-    """Write many lessons from a JSON file.
-
-    A list of objects taking the same keys as `lessons set`. Sent one at a
-    time, in order, on purpose: this is somebody's real planbook.
-    """
-    try:
-        items = json.loads(Path(args.file).read_text())
-    except (OSError, ValueError) as exc:
-        raise UsageError(f"Could not read {args.file}: {exc}") from exc
-    if not isinstance(items, list):
-        raise UsageError(f"{args.file} must contain a JSON list of lesson objects.")
-
-    # Validate everything before writing anything: a typo in item 40 should
-    # not leave 39 lessons half-applied.
-    for index, item in enumerate(items):
-        if not isinstance(item, dict):
-            raise UsageError(f"Item {index} is not an object.")
-        if "date" not in item:
-            raise UsageError(f"Item {index} is missing 'date'.")
-        unknown = set(item) - BULK_KEYS
-        if unknown:
-            raise UsageError(
-                f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
-                f"Accepted: {', '.join(sorted(BULK_KEYS))}."
-            )
-        _require_class_id(item, args, index)
-
-    client = None if args.dry_run else client_from(args)
-    if client is not None:
-        closed = api.no_school_dates(client)
-        hit = sorted({i["date"] for i in items if i.get("date") in closed})
-        if hit:
-            print(
-                f"warning: no-school day(s) in this batch: {', '.join(hit)}",
-                file=sys.stderr,
-            )
-    results, failures = [], 0
-    for index, item in enumerate(items):
-        try:
-            results.append(
-                api.set_lesson(
-                    client,
-                    class_id=_require_class_id(item, args, index),
-                    date=item["date"],
-                    title=item.get("title"),
-                    text=item.get("text"),
-                    homework=item.get("homework"),
-                    notes=item.get("notes"),
-                    unit_id=item.get("unit_id"),
-                    start_time=item.get("start_time"),
-                    end_time=item.get("end_time"),
-                    sections=_bulk_sections(item, args, index),
-                    dry_run=args.dry_run,
-                )
-            )
-        except PlanbookError as exc:
-            failures += 1
-            results.append({"ok": False, "index": index, "error": str(exc)})
-            if not args.keep_going:
-                emit(
-                    {
-                        "written": len(results) - failures,
-                        "failed": failures,
-                        "results": results,
-                    }
-                )
-                raise SystemExit(1) from None
-    emit({"written": len(results) - failures, "failed": failures, "results": results})
-    if failures:
-        raise SystemExit(1)
-
-
-def cmd_lessons_week(args: argparse.Namespace) -> None:
-    client = client_from(args)
-    if args.raw:
-        emit(api.get_week(client, monday=args.monday, weeks=args.weeks))
-        return
-    emit(
-        api.read_week(
-            client, monday=args.monday, weeks=args.weeks, saved_only=not args.all
-        )
-    )
-
-
-def cmd_schedule_special_days(args: argparse.Namespace) -> None:
-    emit(
-        api.special_days(
-            client_from(args),
-            teacher_id=args.teacher_id,
-            year_id=args.year_id,
-            school_id=args.school_id,
-        )
-    )
-
-
-def cmd_settings(args: argparse.Namespace) -> None:
-    emit(api.settings(client_from(args)))
-
-
-def cmd_standards(args: argparse.Namespace) -> None:
-    emit(api.standards(client_from(args), search=args.search or "", raw=args.raw))
-
-
-def cmd_lessons_get(args: argparse.Namespace) -> None:
-    lesson = api.find_lesson(client_from(args), class_id=args.class_id, date=args.date)
-    emit(
-        lesson
-        if lesson is not None
-        else {"found": False, "class_id": args.class_id, "date": args.date}
-    )
-
-
-def cmd_simple_read(args: argparse.Namespace) -> None:
-    emit(api.simple_read(client_from(args), args.command, raw=args.raw))
-
-
-def _teacher_id(args: argparse.Namespace):
-    teacher_id = getattr(args, "teacher_id", None) or pbtoken.describe(
-        config.load_session()
-    ).get("account_id")
-    if not teacher_id:
-        raise UsageError("Could not determine a teacher id; pass --teacher-id.")
-    return teacher_id
-
-
-def cmd_attachments_list(args: argparse.Namespace) -> None:
-    emit(api.list_attachments(client_from(args), teacher_id=_teacher_id(args)))
-
-
-def cmd_attachments_upload(args: argparse.Namespace) -> None:
-    client = client_from(args)
-    emit([api.upload_attachment(client, f) for f in args.files])
-
-
-def cmd_events_list(args: argparse.Namespace) -> None:
-    emit(
-        api.list_events(
-            client_from(args),
-            start=args.start or "",
-            end=args.end or "",
-            limit=args.limit,
-            search=args.search or "",
-        )
-    )
-
-
-def cmd_events_create(args: argparse.Namespace) -> None:
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.create_event(
-            client,
-            title=args.title,
-            date=args.date,
-            end_date=args.end_date,
-            text=args.text or "",
-            start_time=args.start_time or "",
-            end_time=args.end_time or "",
-            private=args.private,
-            no_school=args.no_school,
-            repeats=args.repeats,
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_events_delete(args: argparse.Namespace) -> None:
-    emit(
-        api.delete_event(
-            client_from(args),
-            event_id=args.event_id,
-            occurrence_only=args.occurrence_only,
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_units_list(args: argparse.Namespace) -> None:
-    emit(api.list_units(client_from(args), raw=args.raw))
-
-
-def cmd_units_create(args: argparse.Namespace) -> None:
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.create_unit(
-            client,
-            class_id=args.class_id,
-            number=args.number,
-            title=args.title,
-            description=args.description or "",
-            start=args.start or "",
-            end=args.end or "",
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_units_update(args: argparse.Namespace) -> None:
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.update_unit(
-            client,
-            unit_id=args.unit_id,
-            class_id=args.class_id,
-            number=args.number,
-            title=args.title,
-            description=args.description or "",
-            start=args.start or "",
-            end=args.end or "",
-            dry_run=args.dry_run,
-        )
-    )
-
-
-def cmd_units_delete(args: argparse.Namespace) -> None:
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.delete_unit(
-            client, unit_id=args.unit_id, class_id=args.class_id, dry_run=args.dry_run
-        )
-    )
-
-
-def cmd_classes_delete(args: argparse.Namespace) -> None:
-    if not args.yes:
-        raise UsageError(
-            "Deleting a class also deletes every lesson in it, permanently. "
-            "Pass --yes to confirm."
-        )
-    emit(api.delete_class(client_from(args), class_id=args.class_id))
-
-
-def cmd_lessons_delete(args: argparse.Namespace) -> None:
-    client = None if args.dry_run else client_from(args)
-    emit(
-        api.delete_lesson(
-            client, class_id=args.class_id, date=args.date, dry_run=args.dry_run
-        )
-    )
-
-
-def cmd_todos_list(args: argparse.Namespace) -> None:
-    emit(api.list_todos(client_from(args), class_id=args.class_id or "all"))
-
-
-def cmd_todos_create(args: argparse.Namespace) -> None:
-    emit(
-        api.create_todo(
-            client_from(args),
-            text=args.text,
-            start=args.start,
-            due=args.due or "",
-            priority=args.priority,
-            done=args.done,
-            repeats=args.repeats,
-        )
-    )
-
-
-def cmd_todos_update(args: argparse.Namespace) -> None:
-    emit(
-        api.update_todo(
-            client_from(args),
-            todo_id=args.todo_id,
-            text=args.text,
-            start=args.start,
-            due=args.due or "",
-            priority=args.priority,
-            done=args.done,
-            repeats=args.repeats,
-        )
-    )
-
-
-def cmd_todos_delete(args: argparse.Namespace) -> None:
-    emit(api.delete_todo(client_from(args), todo_id=args.todo_id))
-
-
-def cmd_endpoints(_args: argparse.Namespace) -> None:
-    emit([{"path": p, "status": s, "description": d} for p, s, d in ENDPOINTS])
-
-
-def cmd_raw(args: argparse.Namespace) -> None:
-    """POST to any endpoint. The escape hatch for unmapped calls."""
-    payload: dict[str, str] = {}
-    for pair in args.field:
-        if "=" not in pair:
-            raise UsageError(f"--field expects key=value, got {pair!r}")
-        key, value = pair.split("=", 1)
-        payload[key] = value
-    if args.dry_run:
-        emit({"dry_run": True, "endpoint": args.path, "payload": payload})
-        return
-    emit(client_from(args).post(args.path, payload))
-
-
-# --------------------------------------------------------------------------
-
-
 class _Parser(argparse.ArgumentParser):
     """Exits 64 on a bad command line, as AGENTS.md promises."""
 
-    def error(self, message: str) -> None:  # pragma: no cover - argparse path
+    def error(self, message: str) -> NoReturn:  # pragma: no cover - argparse path
         self.print_usage(sys.stderr)
         print(f"error: {message}", file=sys.stderr)
         raise SystemExit(UsageError.exit_code)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from .commands.auth import (
+        cmd_auth_browser,
+        cmd_auth_import,
+        cmd_auth_login,
+        cmd_auth_logout,
+        cmd_auth_status,
+        cmd_auth_token,
+    )
+    from .commands.classes import (
+        cmd_classes_create,
+        cmd_classes_delete,
+        cmd_classes_get,
+        cmd_classes_list,
+        cmd_classes_update,
+    )
+    from .commands.events import (
+        cmd_events_create,
+        cmd_events_delete,
+        cmd_events_list,
+    )
+    from .commands.lessons import (
+        cmd_lessons_bulk,
+        cmd_lessons_delete,
+        cmd_lessons_get,
+        cmd_lessons_sections,
+        cmd_lessons_set,
+        cmd_lessons_week,
+    )
+    from .commands.misc import (
+        cmd_attachments_list,
+        cmd_attachments_upload,
+        cmd_endpoints,
+        cmd_raw,
+        cmd_schedule_special_days,
+        cmd_settings,
+        cmd_simple_read,
+        cmd_standards,
+    )
+    from .commands.todos import (
+        cmd_todos_create,
+        cmd_todos_delete,
+        cmd_todos_list,
+        cmd_todos_update,
+    )
+    from .commands.units import (
+        cmd_units_create,
+        cmd_units_delete,
+        cmd_units_list,
+        cmd_units_update,
+    )
+
     parser = _Parser(
         prog="planbook",
         description="Unofficial CLI for Planbook.com. Prints JSON on stdout.",

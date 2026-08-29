@@ -15,6 +15,7 @@ import contextlib
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from .config import config_dir
 from .default_browser import (
@@ -39,7 +40,7 @@ def default_profile_dir() -> Path:
     return config_dir() / "browser-profile"
 
 
-def _import_playwright():
+def _import_playwright() -> Any:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -78,7 +79,7 @@ def login_via_browser(
 
     # Prefer the user's own browser: their identity provider session lives
     # there, and an unfamiliar sign-in window is its own small hazard.
-    preferred: list[tuple[str, dict]] = []
+    preferred: list[tuple[str, dict[str, Any]]] = []
     if not channel:
         found = default_chromium_executable()
         if found:
@@ -112,10 +113,10 @@ def login_via_browser(
         if context is None:
             tried = ", ".join(label for label, _ in preferred)
             hint = ""
-            name = default_browser_name()
-            if name and not default_chromium_executable():
+            browser_name = default_browser_name()
+            if browser_name and not default_chromium_executable():
                 hint = (
-                    f"\nYour default browser is {name}, which is not Chromium-based "
+                    f"\nYour default browser is {browser_name}, which is not Chromium-based "
                     "and cannot be driven here. A Chromium browser (Chrome, Brave, "
                     "Edge) is needed, or use `planbook auth cookie` instead."
                 )
@@ -173,7 +174,7 @@ def login_via_browser(
 
                 for cookie in context.cookies():
                     name = cookie.get("name") or ""
-                    value = cookie.get("value")
+                    value = cast(str | None, cookie.get("value"))
                     if not value or not name.endswith(TOKEN_COOKIE_SUFFIX):
                         continue
                     if value in tested:

@@ -24,6 +24,8 @@ import requests
 
 from . import __version__
 from .errors import SIGN_IN_HELP, ApiError, NotAuthenticated, SchemaDrift
+from .wire import intish as intish
+from .wire import yn as yn
 
 API_BASE = "https://api.planbook.com"
 AUTH_BASE = "https://auth.planbook.com"
@@ -33,18 +35,6 @@ AUTH_BASE = "https://auth.planbook.com"
 USER_AGENT = (
     f"planbook-cli/{__version__} (+https://github.com/bryantclark/planbook-cli)"
 )
-
-
-def yn(value: bool) -> str:
-    """Planbook booleans are the strings "Y" and "N"."""
-    return "Y" if value else "N"
-
-
-def intish(value: Any) -> str:
-    """Integer fields must carry "0" when absent, never an empty string."""
-    if value in (None, "", False):
-        return "0"
-    return str(int(value))
 
 
 class PlanbookClient:
@@ -135,7 +125,7 @@ class PlanbookClient:
                 )
         return body
 
-    def require(self, body: Any, *keys: str, where: str) -> dict:
+    def require(self, body: Any, *keys: str, where: str) -> dict[str, Any]:
         """Require the keys we expect. The API is undocumented, so a changed
         shape should stop the run rather than produce plausible wrong output.
         """

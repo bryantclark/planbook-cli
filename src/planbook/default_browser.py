@@ -13,13 +13,34 @@ from pathlib import Path
 
 # Bundle identifier -> (display name, path to the executable inside the bundle)
 CHROMIUM_BROWSERS = {
-    "com.brave.browser": ("Brave", "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
-    "com.brave.browser.beta": ("Brave Beta", "/Applications/Brave Browser Beta.app/Contents/MacOS/Brave Browser Beta"),
-    "com.google.chrome": ("Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-    "com.google.chrome.canary": ("Chrome Canary", "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary"),
-    "com.microsoft.edgemac": ("Edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
-    "com.vivaldi.vivaldi": ("Vivaldi", "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi"),
-    "com.operasoftware.opera": ("Opera", "/Applications/Opera.app/Contents/MacOS/Opera"),
+    "com.brave.browser": (
+        "Brave",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ),
+    "com.brave.browser.beta": (
+        "Brave Beta",
+        "/Applications/Brave Browser Beta.app/Contents/MacOS/Brave Browser Beta",
+    ),
+    "com.google.chrome": (
+        "Chrome",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ),
+    "com.google.chrome.canary": (
+        "Chrome Canary",
+        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+    ),
+    "com.microsoft.edgemac": (
+        "Edge",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ),
+    "com.vivaldi.vivaldi": (
+        "Vivaldi",
+        "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi",
+    ),
+    "com.operasoftware.opera": (
+        "Opera",
+        "/Applications/Opera.app/Contents/MacOS/Opera",
+    ),
     "company.thebrowser.browser": ("Arc", "/Applications/Arc.app/Contents/MacOS/Arc"),
     "com.thebrowser.dia": ("Dia", "/Applications/Dia.app/Contents/MacOS/Dia"),
 }
@@ -50,8 +71,14 @@ def default_browser_bundle_id() -> str | None:
         # Falls back to `defaults`, which sometimes reads when plistlib cannot.
         try:
             out = subprocess.run(
-                ["defaults", "read", "com.apple.LaunchServices/com.apple.launchservices.secure"],
-                capture_output=True, text=True, timeout=10,
+                [
+                    "defaults",
+                    "read",
+                    "com.apple.LaunchServices/com.apple.launchservices.secure",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             ).stdout
         except Exception:
             return None
@@ -66,7 +93,9 @@ def default_browser_bundle_id() -> str | None:
 
     for handler in data.get("LSHandlers", []):
         if handler.get("LSHandlerURLScheme") == "https":
-            bundle = handler.get("LSHandlerRoleAll") or handler.get("LSHandlerRoleViewer")
+            bundle = handler.get("LSHandlerRoleAll") or handler.get(
+                "LSHandlerRoleViewer"
+            )
             if bundle:
                 return bundle.lower()
     return None

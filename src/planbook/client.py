@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -30,7 +30,9 @@ AUTH_BASE = "https://auth.planbook.com"
 
 # Honest identification: the ToS forbids disguising origin, and nothing here
 # needs to look like a browser.
-USER_AGENT = f"planbook-cli/{__version__} (+https://github.com/bryantclark/planbook-cli)"
+USER_AGENT = (
+    f"planbook-cli/{__version__} (+https://github.com/bryantclark/planbook-cli)"
+)
 
 
 def yn(value: bool) -> str:
@@ -87,16 +89,19 @@ class PlanbookClient:
     def upload(self, path: str, file_path: str) -> Any:
         """POST a file as multipart. `/uploadAttachment` is the only such endpoint."""
         url = f"{API_BASE}/{path.lstrip('/')}"
-        name = os.path.basename(file_path)
+        name = Path(file_path).name
         # The part must carry a content type: without one the server fails
         # with `Cannot invoke "String.indexOf(String)" because "fileType" is
         # null`, which says nothing about the real cause.
         content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
         if self.verbose:
             print(f"POST {url} [multipart: {name} ({content_type})]", file=sys.stderr)
-        with open(file_path, "rb") as handle:
-            resp = self.http.post(url, files={"file": (name, handle, content_type)},
-                                  timeout=max(self.timeout, 120))
+        with Path(file_path).open("rb") as handle:
+            resp = self.http.post(
+                url,
+                files={"file": (name, handle, content_type)},
+                timeout=max(self.timeout, 120),
+            )
         return self._check(resp, url)
 
     def _check(self, resp: requests.Response, url: str) -> Any:
@@ -125,7 +130,9 @@ class PlanbookClient:
                     "(they last about 22 hours)." + SIGN_IN_HELP
                 )
             if str(body.get("error", "")).lower() == "true":
-                raise ApiError(body.get("msg") or f"{url} reported an unspecified error")
+                raise ApiError(
+                    body.get("msg") or f"{url} reported an unspecified error"
+                )
         return body
 
     def require(self, body: Any, *keys: str, where: str) -> dict:

@@ -12,16 +12,14 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import requests
 
-import os
-
-from . import __version__, api, auth, browser_auth, config
-from . import browser_cookies
+from . import __version__, api, auth, browser_auth, browser_cookies, config
 from . import token as pbtoken
 from .client import PlanbookClient
 from .endpoints import ENDPOINTS
@@ -75,13 +73,15 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
         api.list_classes(client)  # raises NotAuthenticated if the token is bad
 
     path = config.save_session(value, info.get("email"))
-    emit({
-        "ok": True,
-        "stored": str(path),
-        "verified": not args.no_verify,
-        "email": info.get("email"),
-        "expires_in_hours": info.get("expires_in_hours"),
-    })
+    emit(
+        {
+            "ok": True,
+            "stored": str(path),
+            "verified": not args.no_verify,
+            "email": info.get("email"),
+            "expires_in_hours": info.get("expires_in_hours"),
+        }
+    )
 
 
 def cmd_auth_import(args: argparse.Namespace) -> None:
@@ -107,13 +107,15 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
             continue  # stale token from an old sign-in; try the next browser
         info = pbtoken.describe(candidate)
         path = config.save_session(candidate, info.get("email"))
-        emit({
-            "ok": True,
-            "stored": str(path),
-            "source": browser,
-            "email": info.get("email"),
-            "expires_in_hours": info.get("expires_in_hours"),
-        })
+        emit(
+            {
+                "ok": True,
+                "stored": str(path),
+                "source": browser,
+                "email": info.get("email"),
+                "expires_in_hours": info.get("expires_in_hours"),
+            }
+        )
         return
 
     report = browser_cookies.diagnose()
@@ -146,14 +148,16 @@ def cmd_auth_browser(args: argparse.Namespace) -> None:
         )
     info = pbtoken.describe(value)
     path = config.save_session(value, info.get("email"))
-    emit({
-        "ok": True,
-        "stored": str(path),
-        "method": "browser",
-        "interactive": interactive,
-        "email": info.get("email"),
-        "expires_in_hours": info.get("expires_in_hours"),
-    })
+    emit(
+        {
+            "ok": True,
+            "stored": str(path),
+            "method": "browser",
+            "interactive": interactive,
+            "email": info.get("email"),
+            "expires_in_hours": info.get("expires_in_hours"),
+        }
+    )
 
 
 def cmd_auth_status(args: argparse.Namespace) -> None:
@@ -161,18 +165,20 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
     info = pbtoken.describe(raw)
     client = PlanbookClient(raw, verbose=args.verbose)
     body = api.list_classes(client)
-    emit({
-        "authenticated": True,
-        "source": "env" if config.TOKEN_ENV in os.environ else "file",
-        "email": info.get("email"),
-        "account_id": info.get("account_id"),
-        "expires_in_hours": info.get("expires_in_hours"),
-        "current_year_id": body["current_year_id"],
-        "class_count": len(body["classes"]),
-    })
+    emit(
+        {
+            "authenticated": True,
+            "source": "env" if config.TOKEN_ENV in os.environ else "file",
+            "email": info.get("email"),
+            "account_id": info.get("account_id"),
+            "expires_in_hours": info.get("expires_in_hours"),
+            "current_year_id": body["current_year_id"],
+            "class_count": len(body["classes"]),
+        }
+    )
 
 
-def cmd_auth_logout(args: argparse.Namespace) -> None:
+def cmd_auth_logout(_args: argparse.Namespace) -> None:
     emit({"cleared": config.clear_session()})
 
 
@@ -185,11 +191,20 @@ def cmd_classes_create(args: argparse.Namespace) -> None:
     # not a demand that you sign in first.
     days = api.parse_days(args.days)
     client = None if args.dry_run else client_from(args)
-    emit(api.create_class(
-        client, name=args.name, start_date=args.start, end_date=args.end,
-        days=days, color=args.color, description=args.description or "",
-        times=api.parse_day_times(args.time, days),
-        lesson_layout_id=args.lesson_layout_id, dry_run=args.dry_run))
+    emit(
+        api.create_class(
+            client,
+            name=args.name,
+            start_date=args.start,
+            end_date=args.end,
+            days=days,
+            color=args.color,
+            description=args.description or "",
+            times=api.parse_day_times(args.time, days),
+            lesson_layout_id=args.lesson_layout_id,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_classes_update(args: argparse.Namespace) -> None:
@@ -199,12 +214,20 @@ def cmd_classes_update(args: argparse.Namespace) -> None:
             "A bare --time needs --days to know which days it applies to. "
             "Use --time M=9:00-9:50 to set one day without changing the schedule."
         )
-    emit(api.update_class(
-        client_from(args), class_id=args.class_id, name=args.name,
-        start_date=args.start, end_date=args.end, days=days,
-        color=args.color, description=args.description,
-        times=api.parse_day_times(args.time, days) if args.time else None,
-        dry_run=args.dry_run))
+    emit(
+        api.update_class(
+            client_from(args),
+            class_id=args.class_id,
+            name=args.name,
+            start_date=args.start,
+            end_date=args.end,
+            days=days,
+            color=args.color,
+            description=args.description,
+            times=api.parse_day_times(args.time, days) if args.time else None,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_classes_get(args: argparse.Namespace) -> None:
@@ -243,33 +266,36 @@ def _attachments_from(args: argparse.Namespace, client):
         return None
     if client is None:
         raise UsageError("--attach needs a network connection; drop --dry-run.")
-    return [api.resolve_attachment(client, ref, teacher_id=_teacher_id(args))
-            for ref in args.attach]
+    return [
+        api.resolve_attachment(client, ref, teacher_id=_teacher_id(args))
+        for ref in args.attach
+    ]
 
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
     # A dry run must not need a session; it is the safe first step.
     client = None if args.dry_run else client_from(args)
     if client is not None and args.date in api.no_school_dates(client):
-        print(f"warning: {args.date} is marked as a no-school day.",
-              file=sys.stderr)
-    emit(api.set_lesson(
-        client,
-        class_id=args.class_id,
-        date=args.date,
-        title=args.title,
-        text=args.text,
-        homework=args.homework,
-        notes=args.notes,
-        unit_id=args.unit_id,
-        start_time=args.start_time,
-        end_time=args.end_time,
-        sections=_sections_from(args, client),
-        standards=args.standard if args.standard else None,
-        assignments=args.assignment if args.assignment else None,
-        attach=_attachments_from(args, client),
-        dry_run=args.dry_run,
-    ))
+        print(f"warning: {args.date} is marked as a no-school day.", file=sys.stderr)
+    emit(
+        api.set_lesson(
+            client,
+            class_id=args.class_id,
+            date=args.date,
+            title=args.title,
+            text=args.text,
+            homework=args.homework,
+            notes=args.notes,
+            unit_id=args.unit_id,
+            start_time=args.start_time,
+            end_time=args.end_time,
+            sections=_sections_from(args, client),
+            standards=args.standard if args.standard else None,
+            assignments=args.assignment if args.assignment else None,
+            attach=_attachments_from(args, client),
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def _require_class_id(item: dict, args: argparse.Namespace, index: int) -> Any:
@@ -281,14 +307,22 @@ def _require_class_id(item: dict, args: argparse.Namespace, index: int) -> Any:
     """
     class_id = item.get("class_id", args.class_id)
     if class_id in (None, ""):
-        raise UsageError(
-            f"Item {index} has no class_id and --class-id was not given."
-        )
+        raise UsageError(f"Item {index} has no class_id and --class-id was not given.")
     return class_id
 
 
-BULK_KEYS = {"class_id", "date", "title", "text", "homework", "notes",
-             "unit_id", "start_time", "end_time", "sections"}
+BULK_KEYS = {
+    "class_id",
+    "date",
+    "title",
+    "text",
+    "homework",
+    "notes",
+    "unit_id",
+    "start_time",
+    "end_time",
+    "sections",
+}
 
 
 def _bulk_sections(item: dict, args: argparse.Namespace, index: int):
@@ -314,7 +348,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
     time, in order, on purpose: this is somebody's real planbook.
     """
     try:
-        items = json.loads(open(args.file).read())
+        items = json.loads(Path(args.file).read_text())
     except (OSError, ValueError) as exc:
         raise UsageError(f"Could not read {args.file}: {exc}") from exc
     if not isinstance(items, list):
@@ -340,48 +374,67 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
         closed = api.no_school_dates(client)
         hit = sorted({i["date"] for i in items if i.get("date") in closed})
         if hit:
-            print(f"warning: no-school day(s) in this batch: {', '.join(hit)}",
-                  file=sys.stderr)
+            print(
+                f"warning: no-school day(s) in this batch: {', '.join(hit)}",
+                file=sys.stderr,
+            )
     results, failures = [], 0
     for index, item in enumerate(items):
         try:
-            results.append(api.set_lesson(
-                client,
-                class_id=_require_class_id(item, args, index),
-                date=item["date"],
-                title=item.get("title"),
-                text=item.get("text"),
-                homework=item.get("homework"),
-                notes=item.get("notes"),
-                unit_id=item.get("unit_id"),
-                start_time=item.get("start_time"),
-                end_time=item.get("end_time"),
-                sections=_bulk_sections(item, args, index),
-                dry_run=args.dry_run,
-            ))
+            results.append(
+                api.set_lesson(
+                    client,
+                    class_id=_require_class_id(item, args, index),
+                    date=item["date"],
+                    title=item.get("title"),
+                    text=item.get("text"),
+                    homework=item.get("homework"),
+                    notes=item.get("notes"),
+                    unit_id=item.get("unit_id"),
+                    start_time=item.get("start_time"),
+                    end_time=item.get("end_time"),
+                    sections=_bulk_sections(item, args, index),
+                    dry_run=args.dry_run,
+                )
+            )
         except PlanbookError as exc:
             failures += 1
             results.append({"ok": False, "index": index, "error": str(exc)})
             if not args.keep_going:
-                emit({"written": len(results) - failures, "failed": failures,
-                      "results": results})
-                raise SystemExit(1)
+                emit(
+                    {
+                        "written": len(results) - failures,
+                        "failed": failures,
+                        "results": results,
+                    }
+                )
+                raise SystemExit(1) from None
     emit({"written": len(results) - failures, "failed": failures, "results": results})
     if failures:
         raise SystemExit(1)
 
 
 def cmd_lessons_week(args: argparse.Namespace) -> None:
-    emit(api.get_week(client_from(args), monday=args.monday, weeks=args.weeks))
+    client = client_from(args)
+    if args.raw:
+        emit(api.get_week(client, monday=args.monday, weeks=args.weeks))
+        return
+    emit(
+        api.read_week(
+            client, monday=args.monday, weeks=args.weeks, saved_only=not args.all
+        )
+    )
 
 
 def cmd_schedule_special_days(args: argparse.Namespace) -> None:
-    emit(api.special_days(
-        client_from(args),
-        teacher_id=args.teacher_id,
-        year_id=args.year_id,
-        school_id=args.school_id,
-    ))
+    emit(
+        api.special_days(
+            client_from(args),
+            teacher_id=args.teacher_id,
+            year_id=args.year_id,
+            school_id=args.school_id,
+        )
+    )
 
 
 def cmd_settings(args: argparse.Namespace) -> None:
@@ -393,10 +446,12 @@ def cmd_standards(args: argparse.Namespace) -> None:
 
 
 def cmd_lessons_get(args: argparse.Namespace) -> None:
-    lesson = api.find_lesson(client_from(args), class_id=args.class_id,
-                             date=args.date)
-    emit(lesson if lesson is not None else
-         {"found": False, "class_id": args.class_id, "date": args.date})
+    lesson = api.find_lesson(client_from(args), class_id=args.class_id, date=args.date)
+    emit(
+        lesson
+        if lesson is not None
+        else {"found": False, "class_id": args.class_id, "date": args.date}
+    )
 
 
 def cmd_simple_read(args: argparse.Namespace) -> None:
@@ -404,8 +459,9 @@ def cmd_simple_read(args: argparse.Namespace) -> None:
 
 
 def _teacher_id(args: argparse.Namespace):
-    teacher_id = getattr(args, "teacher_id", None) or \
-        pbtoken.describe(config.load_session()).get("account_id")
+    teacher_id = getattr(args, "teacher_id", None) or pbtoken.describe(
+        config.load_session()
+    ).get("account_id")
     if not teacher_id:
         raise UsageError("Could not determine a teacher id; pass --teacher-id.")
     return teacher_id
@@ -421,25 +477,45 @@ def cmd_attachments_upload(args: argparse.Namespace) -> None:
 
 
 def cmd_events_list(args: argparse.Namespace) -> None:
-    emit(api.list_events(client_from(args), start=args.start or "",
-                         end=args.end or "", limit=args.limit,
-                         search=args.search or ""))
+    emit(
+        api.list_events(
+            client_from(args),
+            start=args.start or "",
+            end=args.end or "",
+            limit=args.limit,
+            search=args.search or "",
+        )
+    )
 
 
 def cmd_events_create(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
-    emit(api.create_event(client, title=args.title, date=args.date,
-                          end_date=args.end_date, text=args.text or "",
-                          start_time=args.start_time or "",
-                          end_time=args.end_time or "",
-                          private=args.private, no_school=args.no_school,
-                          repeats=args.repeats, dry_run=args.dry_run))
+    emit(
+        api.create_event(
+            client,
+            title=args.title,
+            date=args.date,
+            end_date=args.end_date,
+            text=args.text or "",
+            start_time=args.start_time or "",
+            end_time=args.end_time or "",
+            private=args.private,
+            no_school=args.no_school,
+            repeats=args.repeats,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_events_delete(args: argparse.Namespace) -> None:
-    emit(api.delete_event(client_from(args), event_id=args.event_id,
-                          occurrence_only=args.occurrence_only,
-                          dry_run=args.dry_run))
+    emit(
+        api.delete_event(
+            client_from(args),
+            event_id=args.event_id,
+            occurrence_only=args.occurrence_only,
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_units_list(args: argparse.Namespace) -> None:
@@ -448,25 +524,44 @@ def cmd_units_list(args: argparse.Namespace) -> None:
 
 def cmd_units_create(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
-    emit(api.create_unit(client, class_id=args.class_id, number=args.number,
-                         title=args.title, description=args.description or "",
-                         start=args.start or "", end=args.end or "",
-                         dry_run=args.dry_run))
+    emit(
+        api.create_unit(
+            client,
+            class_id=args.class_id,
+            number=args.number,
+            title=args.title,
+            description=args.description or "",
+            start=args.start or "",
+            end=args.end or "",
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_units_update(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
-    emit(api.update_unit(client, unit_id=args.unit_id, class_id=args.class_id,
-                         number=args.number, title=args.title,
-                         description=args.description or "",
-                         start=args.start or "", end=args.end or "",
-                         dry_run=args.dry_run))
+    emit(
+        api.update_unit(
+            client,
+            unit_id=args.unit_id,
+            class_id=args.class_id,
+            number=args.number,
+            title=args.title,
+            description=args.description or "",
+            start=args.start or "",
+            end=args.end or "",
+            dry_run=args.dry_run,
+        )
+    )
 
 
 def cmd_units_delete(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
-    emit(api.delete_unit(client, unit_id=args.unit_id, class_id=args.class_id,
-                         dry_run=args.dry_run))
+    emit(
+        api.delete_unit(
+            client, unit_id=args.unit_id, class_id=args.class_id, dry_run=args.dry_run
+        )
+    )
 
 
 def cmd_classes_delete(args: argparse.Namespace) -> None:
@@ -480,8 +575,11 @@ def cmd_classes_delete(args: argparse.Namespace) -> None:
 
 def cmd_lessons_delete(args: argparse.Namespace) -> None:
     client = None if args.dry_run else client_from(args)
-    emit(api.delete_lesson(client, class_id=args.class_id, date=args.date,
-                           dry_run=args.dry_run))
+    emit(
+        api.delete_lesson(
+            client, class_id=args.class_id, date=args.date, dry_run=args.dry_run
+        )
+    )
 
 
 def cmd_todos_list(args: argparse.Namespace) -> None:
@@ -489,23 +587,39 @@ def cmd_todos_list(args: argparse.Namespace) -> None:
 
 
 def cmd_todos_create(args: argparse.Namespace) -> None:
-    emit(api.create_todo(client_from(args), text=args.text, start=args.start,
-                         due=args.due or "", priority=args.priority,
-                         done=args.done, repeats=args.repeats))
+    emit(
+        api.create_todo(
+            client_from(args),
+            text=args.text,
+            start=args.start,
+            due=args.due or "",
+            priority=args.priority,
+            done=args.done,
+            repeats=args.repeats,
+        )
+    )
 
 
 def cmd_todos_update(args: argparse.Namespace) -> None:
-    emit(api.update_todo(client_from(args), todo_id=args.todo_id, text=args.text,
-                         start=args.start, due=args.due or "",
-                         priority=args.priority, done=args.done,
-                         repeats=args.repeats))
+    emit(
+        api.update_todo(
+            client_from(args),
+            todo_id=args.todo_id,
+            text=args.text,
+            start=args.start,
+            due=args.due or "",
+            priority=args.priority,
+            done=args.done,
+            repeats=args.repeats,
+        )
+    )
 
 
 def cmd_todos_delete(args: argparse.Namespace) -> None:
     emit(api.delete_todo(client_from(args), todo_id=args.todo_id))
 
 
-def cmd_endpoints(args: argparse.Namespace) -> None:
+def cmd_endpoints(_args: argparse.Namespace) -> None:
     emit([{"path": p, "status": s, "description": d} for p, s, d in ENDPOINTS])
 
 
@@ -541,12 +655,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Unofficial CLI for Planbook.com. Prints JSON on stdout.",
         epilog="Docs: AGENTS.md for agent usage, docs/API-NOTES.md for the API itself.",
     )
-    parser.add_argument("--version", action="version", version=f"planbook-cli {__version__}")
-    parser.add_argument("-v", "--verbose", action="store_true",
-                        help="log each request to stderr")
+    parser.add_argument(
+        "--version", action="version", version=f"planbook-cli {__version__}"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="log each request to stderr"
+    )
     parser.set_defaults(_parser_class=_Parser)
-    sub = parser.add_subparsers(dest="command", required=True,
-                                parser_class=_Parser)
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     p_auth = sub.add_parser("auth", help="sign in and inspect the stored session")
     s_auth = p_auth.add_subparsers(dest="auth_command", required=True)
@@ -555,29 +671,55 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_auth_login)
     # "cookie" kept as an alias: it is in older docs and in muscle memory.
     a = s_auth.add_parser(
-        "import", help="read the token from a browser you are signed in to")
-    a.add_argument("--browser", choices=list(browser_cookies.KNOWN_BROWSERS),
-                   help="which browser to read; defaults to yours, then the rest")
+        "import", help="read the token from a browser you are signed in to"
+    )
+    a.add_argument(
+        "--browser",
+        choices=list(browser_cookies.KNOWN_BROWSERS),
+        help="which browser to read; defaults to yours, then the rest",
+    )
     a.set_defaults(func=cmd_auth_import)
-    a = s_auth.add_parser("token", aliases=["cookie"],
-                          help="store an access token from a signed-in browser")
-    a.add_argument("value", nargs="?",
-                   help="the token, a Cookie header, or a 'Copy as cURL' paste; "
-                        "prompted for (hidden) if omitted")
-    a.add_argument("--no-verify", action="store_true",
-                   help="store without checking the token against the API")
+    a = s_auth.add_parser(
+        "token",
+        aliases=["cookie"],
+        help="store an access token from a signed-in browser",
+    )
+    a.add_argument(
+        "value",
+        nargs="?",
+        help="the token, a Cookie header, or a 'Copy as cURL' paste; "
+        "prompted for (hidden) if omitted",
+    )
+    a.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="store without checking the token against the API",
+    )
     a.set_defaults(func=cmd_auth_token)
     a = s_auth.add_parser(
-        "browser",
-        help="sign in by opening a browser (works with Google and other SSO)")
-    a.add_argument("--timeout", type=int, default=300,
-                   help="seconds to wait for sign-in (default 300)")
-    a.add_argument("--channel", choices=["chrome", "msedge", "chromium"],
-                   help="which browser to launch; tries chrome, then edge, then chromium")
-    a.add_argument("--profile", type=Path,
-                   help="browser profile directory (default: alongside the session file)")
-    a.add_argument("--interactive", action="store_true",
-                   help="always open a window; skip the silent refresh attempt")
+        "browser", help="sign in by opening a browser (works with Google and other SSO)"
+    )
+    a.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="seconds to wait for sign-in (default 300)",
+    )
+    a.add_argument(
+        "--channel",
+        choices=["chrome", "msedge", "chromium"],
+        help="which browser to launch; tries chrome, then edge, then chromium",
+    )
+    a.add_argument(
+        "--profile",
+        type=Path,
+        help="browser profile directory (default: alongside the session file)",
+    )
+    a.add_argument(
+        "--interactive",
+        action="store_true",
+        help="always open a window; skip the silent refresh attempt",
+    )
     a.set_defaults(func=cmd_auth_browser)
     a = s_auth.add_parser("status", help="verify the stored session works")
     a.set_defaults(func=cmd_auth_status)
@@ -593,21 +735,31 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--name", required=True)
     c.add_argument("--start", required=True, metavar="MM/DD/YYYY")
     c.add_argument("--end", required=True, metavar="MM/DD/YYYY")
-    c.add_argument("--days", default="MTWRF",
-                   help="days taught, e.g. MTWRF (R=Thursday, U=Sunday)")
+    c.add_argument(
+        "--days", default="MTWRF", help="days taught, e.g. MTWRF (R=Thursday, U=Sunday)"
+    )
     c.add_argument("--color", default="#7ED321")
     c.add_argument("--description")
-    c.add_argument("--time", action="append", default=[], metavar="SPEC",
-                   help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
-                        "for one day; repeatable")
-    c.add_argument("--lesson-layout-id", dest="lesson_layout_id", default=0,
-                   help="layout deciding which lesson sections exist "
-                        "(see `planbook lessons sections`)")
+    c.add_argument(
+        "--time",
+        action="append",
+        default=[],
+        metavar="SPEC",
+        help="class time: 9:00-9:50 for every day, or M=9:00-9:50 "
+        "for one day; repeatable",
+    )
+    c.add_argument(
+        "--lesson-layout-id",
+        dest="lesson_layout_id",
+        default=0,
+        help="layout deciding which lesson sections exist "
+        "(see `planbook lessons sections`)",
+    )
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_create)
     c = s_cls.add_parser(
-        "update",
-        help="update a class; only the fields you pass change")
+        "update", help="update a class; only the fields you pass change"
+    )
     c.add_argument("--class-id", dest="class_id", required=True)
     c.add_argument("--name")
     c.add_argument("--start", metavar="MM/DD/YYYY")
@@ -615,15 +767,21 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--days", help="replaces the schedule, e.g. MTWRF")
     c.add_argument("--color")
     c.add_argument("--description")
-    c.add_argument("--time", action="append", default=[], metavar="SPEC",
-                   help="class time: 9:00-9:50 for every day in --days, or "
-                        "M=9:00-9:50 for one day; repeatable")
+    c.add_argument(
+        "--time",
+        action="append",
+        default=[],
+        metavar="SPEC",
+        help="class time: 9:00-9:50 for every day in --days, or "
+        "M=9:00-9:50 for one day; repeatable",
+    )
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
     c.add_argument("class_id")
-    c.add_argument("--yes", action="store_true",
-                   help="required: confirms the lessons go too")
+    c.add_argument(
+        "--yes", action="store_true", help="required: confirms the lessons go too"
+    )
     c.set_defaults(func=cmd_classes_delete)
     c = s_cls.add_parser("get", help="fetch one class by id")
     c.add_argument("class_id")
@@ -631,61 +789,105 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_les = sub.add_parser("lessons", help="read and write lessons")
     s_les = p_les.add_subparsers(dest="lessons_command", required=True)
-    l = s_les.add_parser("set", help="create or update one lesson (upsert by class+date)")
-    l.add_argument("--class-id", dest="class_id", required=True)
-    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
-    l.add_argument("--title")
-    l.add_argument("--text", help="lesson body; HTML is accepted")
-    l.add_argument("--homework")
-    l.add_argument("--notes")
-    l.add_argument("--unit-id", dest="unit_id")
-    l.add_argument("--start-time", dest="start_time", metavar="TIME",
-                   help="lesson start, e.g. 9:00am or 14:30")
-    l.add_argument("--end-time", dest="end_time", metavar="TIME")
-    l.add_argument("--attach", action="append", default=[], metavar="FILE",
-                   help="attach a file: a local path is uploaded first, an "
-                        "existing resource name is linked; repeatable, and "
-                        "replaces whatever was attached")
-    l.add_argument("--standard", action="append", default=[], metavar="DB_ID",
-                   help="attach a standard by its db_id (see `planbook standards`); "
-                        "repeatable, and replaces whatever was attached")
-    l.add_argument("--assignment", action="append", default=[], metavar="ID",
-                   help="attach an assignment by id (see `planbook assignments`); "
-                        "repeatable, and replaces whatever was attached")
-    l.add_argument("--section", action="append", default=[], metavar="KEY=TEXT",
-                   help="write a lesson section by number (1-6) or by its label, "
-                        "e.g. --section 'Objectives=...'; repeatable")
-    l.add_argument("--dry-run", action="store_true",
-                   help="print the form payload instead of sending it")
-    l.set_defaults(func=cmd_lessons_set)
-    l = s_les.add_parser("bulk", help="write many lessons from a JSON file")
-    l.add_argument("file",
-                   help="JSON list of lesson objects; keys: "
-                        "class_id, date, title, text, homework, notes, "
-                        "unit_id, start_time, end_time, sections")
-    l.add_argument("--class-id", dest="class_id",
-                   help="default class_id for items that omit one")
-    l.add_argument("--keep-going", action="store_true",
-                   help="continue after a failed item instead of stopping")
-    l.add_argument("--dry-run", action="store_true")
-    l.set_defaults(func=cmd_lessons_bulk)
-    l = s_les.add_parser(
+    sub_lesson = s_les.add_parser(
+        "set", help="create or update one lesson (upsert by class+date)"
+    )
+    sub_lesson.add_argument("--class-id", dest="class_id", required=True)
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--title")
+    sub_lesson.add_argument("--text", help="lesson body; HTML is accepted")
+    sub_lesson.add_argument("--homework")
+    sub_lesson.add_argument("--notes")
+    sub_lesson.add_argument("--unit-id", dest="unit_id")
+    sub_lesson.add_argument(
+        "--start-time",
+        dest="start_time",
+        metavar="TIME",
+        help="lesson start, e.g. 9:00am or 14:30",
+    )
+    sub_lesson.add_argument("--end-time", dest="end_time", metavar="TIME")
+    sub_lesson.add_argument(
+        "--attach",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="attach a file: a local path is uploaded first, an "
+        "existing resource name is linked; repeatable, and "
+        "replaces whatever was attached",
+    )
+    sub_lesson.add_argument(
+        "--standard",
+        action="append",
+        default=[],
+        metavar="DB_ID",
+        help="attach a standard by its db_id (see `planbook standards`); "
+        "repeatable, and replaces whatever was attached",
+    )
+    sub_lesson.add_argument(
+        "--assignment",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="attach an assignment by id (see `planbook assignments`); "
+        "repeatable, and replaces whatever was attached",
+    )
+    sub_lesson.add_argument(
+        "--section",
+        action="append",
+        default=[],
+        metavar="KEY=TEXT",
+        help="write a lesson section by number (1-6) or by its label, "
+        "e.g. --section 'Objectives=...'; repeatable",
+    )
+    sub_lesson.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the form payload instead of sending it",
+    )
+    sub_lesson.set_defaults(func=cmd_lessons_set)
+    sub_lesson = s_les.add_parser("bulk", help="write many lessons from a JSON file")
+    sub_lesson.add_argument(
+        "file",
+        help="JSON list of lesson objects; keys: "
+        "class_id, date, title, text, homework, notes, "
+        "unit_id, start_time, end_time, sections",
+    )
+    sub_lesson.add_argument(
+        "--class-id", dest="class_id", help="default class_id for items that omit one"
+    )
+    sub_lesson.add_argument(
+        "--keep-going",
+        action="store_true",
+        help="continue after a failed item instead of stopping",
+    )
+    sub_lesson.add_argument("--dry-run", action="store_true")
+    sub_lesson.set_defaults(func=cmd_lessons_bulk)
+    sub_lesson = s_les.add_parser(
         "sections",
-        help="show the six lesson sections, their labels and whether they are on")
-    l.set_defaults(func=cmd_lessons_sections)
-    l = s_les.add_parser("get", help="read one saved lesson")
-    l.add_argument("--class-id", dest="class_id", required=True)
-    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
-    l.set_defaults(func=cmd_lessons_get)
-    l = s_les.add_parser("delete", help="clear the lesson on one date")
-    l.add_argument("--class-id", dest="class_id", required=True)
-    l.add_argument("--date", required=True, metavar="MM/DD/YYYY")
-    l.add_argument("--dry-run", action="store_true")
-    l.set_defaults(func=cmd_lessons_delete)
-    l = s_les.add_parser("week", help="fetch a week of lessons and events (partial mapping)")
-    l.add_argument("--monday", required=True, metavar="MM/DD/YYYY")
-    l.add_argument("--weeks", type=int, default=1)
-    l.set_defaults(func=cmd_lessons_week)
+        help="show the six lesson sections, their labels and whether they are on",
+    )
+    sub_lesson.set_defaults(func=cmd_lessons_sections)
+    sub_lesson = s_les.add_parser("get", help="read one saved lesson")
+    sub_lesson.add_argument("--class-id", dest="class_id", required=True)
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.set_defaults(func=cmd_lessons_get)
+    sub_lesson = s_les.add_parser("delete", help="clear the lesson on one date")
+    sub_lesson.add_argument("--class-id", dest="class_id", required=True)
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--dry-run", action="store_true")
+    sub_lesson.set_defaults(func=cmd_lessons_delete)
+    sub_lesson = s_les.add_parser(
+        "week", help="fetch a week of lessons and events (partial mapping)"
+    )
+    sub_lesson.add_argument("--monday", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--weeks", type=int, default=1)
+    sub_lesson.add_argument(
+        "--all", action="store_true", help="include days with no saved lesson"
+    )
+    sub_lesson.add_argument(
+        "--raw", action="store_true", help="print the unmapped response body"
+    )
+    sub_lesson.set_defaults(func=cmd_lessons_week)
 
     p_sch = sub.add_parser("schedule", help="school calendar")
     s_sch = p_sch.add_subparsers(dest="schedule_command", required=True)
@@ -713,8 +915,7 @@ def build_parser() -> argparse.ArgumentParser:
         t.add_argument("--text", required=True, help="HTML accepted")
         t.add_argument("--start", required=True, metavar="MM/DD/YYYY")
         t.add_argument("--due", metavar="MM/DD/YYYY", help="defaults to --start")
-        t.add_argument("--priority", choices=["low", "medium", "high"],
-                       default="low")
+        t.add_argument("--priority", choices=["low", "medium", "high"], default="low")
         t.add_argument("--done", action="store_true")
         t.add_argument("--repeats", default="daily")
         t.set_defaults(func=fn)
@@ -756,24 +957,36 @@ def build_parser() -> argparse.ArgumentParser:
     e = s_ev.add_parser("create", help="create an event")
     e.add_argument("--title", required=True)
     e.add_argument("--date", required=True, metavar="MM/DD/YYYY")
-    e.add_argument("--end-date", dest="end_date", metavar="MM/DD/YYYY",
-                   help="defaults to --date")
+    e.add_argument(
+        "--end-date", dest="end_date", metavar="MM/DD/YYYY", help="defaults to --date"
+    )
     e.add_argument("--text", help="description; HTML accepted")
     e.add_argument("--start-time", dest="start_time")
     e.add_argument("--end-time", dest="end_time")
     e.add_argument("--private", action="store_true")
-    e.add_argument("--no-school", dest="no_school", action="store_true",
-                   help="mark as a no-school day")
-    e.add_argument("--repeats", default="daily",
-                   help="recurrence across the date range (default: daily)")
+    e.add_argument(
+        "--no-school",
+        dest="no_school",
+        action="store_true",
+        help="mark as a no-school day",
+    )
+    e.add_argument(
+        "--repeats",
+        default="daily",
+        help="recurrence across the date range (default: daily)",
+    )
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_create)
     e = s_ev.add_parser(
-        "delete", help="delete an event by id (the whole series by default)")
+        "delete", help="delete an event by id (the whole series by default)"
+    )
     e.add_argument("event_id")
-    e.add_argument("--occurrence-only", dest="occurrence_only",
-                   action="store_true",
-                   help="delete only this date, not the whole repeating series")
+    e.add_argument(
+        "--occurrence-only",
+        dest="occurrence_only",
+        action="store_true",
+        help="delete only this date, not the whole repeating series",
+    )
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_delete)
 
@@ -781,27 +994,41 @@ def build_parser() -> argparse.ArgumentParser:
         if name in ("events", "units", "todos"):
             continue
         rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
-        rp.add_argument("--raw", action="store_true",
-                        help="print the full response envelope")
+        rp.add_argument(
+            "--raw", action="store_true", help="print the full response envelope"
+        )
         rp.set_defaults(func=cmd_simple_read)
 
     p_at = sub.add_parser("attachments", help="upload and list resource files")
     s_at = p_at.add_subparsers(dest="attachments_command", required=True)
     a = s_at.add_parser("list", help="list uploaded resources")
-    a.add_argument("--teacher-id", dest="teacher_id",
-                   help="defaults to the account id in your token")
+    a.add_argument(
+        "--teacher-id",
+        dest="teacher_id",
+        help="defaults to the account id in your token",
+    )
     a.set_defaults(func=cmd_attachments_list)
     a = s_at.add_parser("upload", help="upload one or more files")
     a.add_argument("files", nargs="+", help="local file paths")
     a.set_defaults(func=cmd_attachments_upload)
 
-    p = sub.add_parser("endpoints", help="list known API endpoints and how well they are mapped")
+    p = sub.add_parser(
+        "endpoints", help="list known API endpoints and how well they are mapped"
+    )
     p.set_defaults(func=cmd_endpoints)
 
-    p = sub.add_parser("raw", help="POST to any endpoint (escape hatch for unmapped calls)")
+    p = sub.add_parser(
+        "raw", help="POST to any endpoint (escape hatch for unmapped calls)"
+    )
     p.add_argument("path", help="endpoint path, e.g. /getAssignments")
-    p.add_argument("-F", "--field", action="append", default=[], metavar="KEY=VALUE",
-                   help="form field; repeatable")
+    p.add_argument(
+        "-F",
+        "--field",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="form field; repeatable",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_raw)
 

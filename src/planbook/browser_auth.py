@@ -11,6 +11,7 @@ Chrome is launched by channel rather than Playwright's bundled Chromium: no
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import time
 from pathlib import Path
@@ -85,10 +86,12 @@ def login_via_browser(
             preferred.append((name, {"executable_path": executable}))
     channels = (channel,) if channel else CHANNELS
     for candidate in channels:
-        preferred.append((
-            candidate,
-            {} if candidate == "chromium" else {"channel": candidate},
-        ))
+        preferred.append(
+            (
+                candidate,
+                {} if candidate == "chromium" else {"channel": candidate},
+            )
+        )
 
     with sync_playwright() as pw:
         context = None
@@ -140,28 +143,27 @@ def login_via_browser(
         if page is None:
             page = context.new_page()
 
-        try:
+        # A slow or redirected load is not fatal; the poll loop decides.
+        with contextlib.suppress(Exception):
             page.goto(SIGNIN_URL, timeout=60_000)
-        except Exception:
-            pass  # a slow or redirected load is not fatal; keep polling
 
         # Safe to close: this profile is ours alone, nothing here is the user's.
         for other in list(context.pages):
             if other is page:
                 continue
-            try:
-                if other.url in ("about:blank", "") or other.url.startswith((
-                    "chrome://welcome", "brave://welcome", "chrome://new-tab-page",
-                )):
+            with contextlib.suppress(Exception):
+                if other.url in ("about:blank", "") or other.url.startswith(
+                    (
+                        "chrome://welcome",
+                        "brave://welcome",
+                        "chrome://new-tab-page",
+                    )
+                ):
                     other.close()
-            except Exception:
-                pass
 
         if not headless:
-            try:
+            with contextlib.suppress(Exception):
                 page.bring_to_front()
-            except Exception:
-                pass
 
         deadline = time.time() + timeout
         try:
@@ -184,10 +186,8 @@ def login_via_browser(
 
                 time.sleep(2)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 context.close()
-            except Exception:
-                pass
 
     raise LoginFailed(
         f"No working session appeared within {timeout}s. "

@@ -11,6 +11,7 @@ and expiry warnings cost no request.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import re
 import time
@@ -18,8 +19,12 @@ from typing import Any
 
 # The token turns up as a bare JWT, inside a Cookie header, or in a whole
 # "Copy as cURL" paste.
-COOKIE_RE = re.compile(r"\.accesstoken=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)")
-BEARER_RE = re.compile(r"[Bb]earer\s+([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)")
+COOKIE_RE = re.compile(
+    r"\.accesstoken=([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)"
+)
+BEARER_RE = re.compile(
+    r"[Bb]earer\s+([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)"
+)
 JWT_RE = re.compile(r"^[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+$")
 
 
@@ -50,10 +55,8 @@ def claims(token: str) -> dict[str, Any]:
         return {}
     sub = payload.get("sub")
     if isinstance(sub, str):
-        try:
+        with contextlib.suppress(ValueError):
             payload["sub"] = json.loads(sub)
-        except ValueError:
-            pass
     return payload
 
 
@@ -73,7 +76,9 @@ def describe(token: str) -> dict[str, Any]:
         "year_id": sub.get("yearId"),
         "expires_at": expires_at,
         "expires_in_seconds": remaining,
-        "expires_in_hours": round(remaining / 3600, 1) if remaining is not None else None,
+        "expires_in_hours": round(remaining / 3600, 1)
+        if remaining is not None
+        else None,
         "expired": remaining == 0 if remaining is not None else None,
     }
 

@@ -36,7 +36,11 @@ ENDPOINTS = [
     # To-dos and notes
     ("/getToDos", "mapped", "To-dos (classId=all for everything)"),
     ("/updateToDo", "mapped", "Add/update/delete a to-do via action=A|U|D"),
-    ("/services/planbook/newNote/filterNotes", "observed", "Notes; filter args unmapped"),
+    (
+        "/services/planbook/newNote/filterNotes",
+        "observed",
+        "Notes; filter args unmapped",
+    ),
     ("/addNote", "observed", "Create a note"),
     ("/updateNote", "observed", "Update a note"),
     # Other reads
@@ -50,7 +54,11 @@ ENDPOINTS = [
     ("/getAttachmentList", "mapped", "Uploaded resources"),
     ("/services/planbook/template/get", "observed", "Lesson templates; needs args"),
     ("/services/planbook/student/getAllFromSchool", "observed", "Students"),
-    ("/services/planbook/unarchiveYear/getUnarchivalStatus", "observed", "Year unarchival"),
+    (
+        "/services/planbook/unarchiveYear/getUnarchivalStatus",
+        "observed",
+        "Year unarchival",
+    ),
     ("/services/planbook/googleclassroom", "observed", "Google Classroom link"),
     ("/connectServlet", "observed", "Third-party connect flow"),
     # Gated
@@ -58,5 +66,9 @@ ENDPOINTS = [
     ("/services/api/referencedata/maintenanceData", "observed", "Reference data"),
     ("/services/api/feature-flags", "observed", "Feature flags - needs an API key"),
     ("/services/api/global-vars", "observed", "Global vars - needs an API key"),
-    ("/services/planbook/oneRosterClient/getAllRosteredItems", "observed", "OneRoster sync"),
+    (
+        "/services/planbook/oneRosterClient/getAllRosteredItems",
+        "observed",
+        "OneRoster sync",
+    ),
 ]

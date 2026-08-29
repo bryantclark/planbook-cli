@@ -7,8 +7,11 @@ exactly what the server said.
 
 from __future__ import annotations
 
+import contextlib
+import datetime
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +30,15 @@ DAY_PREFIXES = {
     "sunday": "u",
 }
 
-DAY_LETTERS = {"M": "monday", "T": "tuesday", "W": "wednesday",
-               "R": "thursday", "F": "friday", "S": "saturday", "U": "sunday"}
+DAY_LETTERS = {
+    "M": "monday",
+    "T": "tuesday",
+    "W": "wednesday",
+    "R": "thursday",
+    "F": "friday",
+    "S": "saturday",
+    "U": "sunday",
+}
 
 
 TIME_RE = re.compile(r"^\s*(\d{1,2})[:.](\d{2})\s*([AaPp])?\.?[Mm]?\.?\s*$")
@@ -64,8 +74,9 @@ def parse_time(value: str | None) -> str:
     return f"{hour}:{minute:02d} {suffix}"
 
 
-def parse_day_times(specs: list[str],
-                    days: list[str] | None) -> dict[str, tuple[str, str]]:
+def parse_day_times(
+    specs: list[str], days: list[str] | None
+) -> dict[str, tuple[str, str]]:
     """Read --time values into {day: (start, end)}.
 
     Accepts "9:00-9:50" (every teaching day) or "M=9:00-9:50" (one day).
@@ -75,8 +86,7 @@ def parse_day_times(specs: list[str],
         target, _, window = spec.rpartition("=")
         if "-" not in window:
             raise UsageError(
-                f"--time {spec!r} needs a start and end, e.g. 9:00-9:50 "
-                "or M=9:00-9:50."
+                f"--time {spec!r} needs a start and end, e.g. 9:00-9:50 or M=9:00-9:50."
             )
         start, _, end = window.partition("-")
         pair = (parse_time(start), parse_time(end))
@@ -85,7 +95,7 @@ def parse_day_times(specs: list[str],
                 f"--time {spec!r} applies to every teaching day, but no days "
                 "were given. Name a day (M=9:00-9:50) or pass --days."
             )
-        for day in (parse_days(target) if target else days or []):
+        for day in parse_days(target) if target else days or []:
             times[day] = pair
     return times
 
@@ -152,14 +162,28 @@ def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]
 
 
 # Weekday order for the *_Teach form fields.
-DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday",
-             "saturday", "sunday"]
+DAY_ORDER = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+]
 
 # The schedule JSON indexes differently: teachDay1 is SUNDAY, not Monday. An
 # off-by-one does not error, it silently shifts every day (Mon/Wed/Fri became
 # Tue/Thu/Sun).
-SCHEDULE_DAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday",
-                      "friday", "saturday"]
+SCHEDULE_DAY_ORDER = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+]
 
 # Rotations run up to 20 days, so all twenty slots are always sent; a weekly
 # timetable fills the first seven and leaves the rest false.
@@ -210,14 +234,16 @@ def edit_schedule(
     return json.dumps(rows, separators=(",", ":"))
 
 
-def build_schedule(days: list[str], start_date: str,
-                   times: dict[str, tuple[str, str]] | None = None) -> str:
+def build_schedule(
+    days: list[str], start_date: str, times: dict[str, tuple[str, str]] | None = None
+) -> str:
     """Build a fresh `schedules` JSON for a new class."""
     times = times or {}
     slot: dict[str, Any] = {"scheduleStart": start_date, "additionalClassDays": []}
     for index in range(1, SCHEDULE_SLOTS + 1):
-        day = (SCHEDULE_DAY_ORDER[index - 1]
-               if index <= len(SCHEDULE_DAY_ORDER) else None)
+        day = (
+            SCHEDULE_DAY_ORDER[index - 1] if index <= len(SCHEDULE_DAY_ORDER) else None
+        )
         teaches = bool(day and day in days)
         start, end = times.get(day or "", ("", ""))
         slot[f"teachDay{index}"] = teaches
@@ -292,17 +318,26 @@ def create_class(
     lesson_layout_id: Any = 0,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    payload = _class_payload(name=name, start_date=start_date, end_date=end_date,
-                             days=days, color=color, description=description,
-                             times=times, lesson_layout_id=lesson_layout_id)
+    payload = _class_payload(
+        name=name,
+        start_date=start_date,
+        end_date=end_date,
+        days=days,
+        color=color,
+        description=description,
+        times=times,
+        lesson_layout_id=lesson_layout_id,
+    )
     if dry_run:
         return {"dry_run": True, "endpoint": "/addClass", "payload": payload}
 
     # /addClass does not report the id it created, and matching by name
     # afterwards breaks the moment two classes share a name. Diff the ids
     # instead.
-    before = {str(c.get("cId")) for c in
-              (client.post("/getClasses2") or {}).get("classes") or []}
+    before = {
+        str(c.get("cId"))
+        for c in (client.post("/getClasses2") or {}).get("classes") or []
+    }
     client.post("/addClass", payload)
     after = (client.post("/getClasses2") or {}).get("classes") or []
     created = [c for c in after if str(c.get("cId")) not in before]
@@ -363,7 +398,8 @@ def update_class(
     # scalar <day>Teach fields are a flattened view of the latest row.
     latest = schedule_rows[-1]
     current_days = [
-        day for n, day in enumerate(SCHEDULE_DAY_ORDER, start=1)
+        day
+        for n, day in enumerate(SCHEDULE_DAY_ORDER, start=1)
         if latest.get(f"day{n}Teach")
     ]
     new_days = days if days is not None else current_days
@@ -375,8 +411,9 @@ def update_class(
         "classStartDate": start,
         "classEndDate": end_date or current.get("classEndDate") or "",
         "color": color if color is not None else current.get("color") or "#7ED321",
-        "classDesc": (description if description is not None
-                      else current.get("classDesc") or ""),
+        "classDesc": (
+            description if description is not None else current.get("classDesc") or ""
+        ),
         "titleColor": current.get("titleColor") or "#000000",
         "titleSize": str(current.get("titleSize") or "12"),
         "titleFont": current.get("titleFont") or "Arial",
@@ -408,8 +445,12 @@ def update_class(
     if dry_run:
         return {"dry_run": True, "endpoint": "/updateClass/v10", "payload": payload}
     client.post("/updateClass/v10", payload)
-    return {"ok": True, "class_id": payload["classId"],
-            "name": payload["className"], "days": new_days}
+    return {
+        "ok": True,
+        "class_id": payload["classId"],
+        "name": payload["className"],
+        "days": new_days,
+    }
 
 
 def get_class(client: PlanbookClient, class_id: Any) -> Any:
@@ -461,32 +502,85 @@ def list_assignments(client: PlanbookClient) -> Any:
     return body
 
 
-def _iter_lessons(body: Any):
-    """Walk getLessonsEvents for records that are actual saved lessons.
+def iter_days(body: Any) -> Iterator[dict[str, Any]]:
+    """Yield each day in a getLessonsEvents response.
 
-    The response nests lessons under `days` keyed by integer offset, and
-    includes a placeholder for every class on every day. Only records with a
-    `lessonId` have been saved.
+    Lessons carry no date of their own - the date comes from the day they sit
+    in. Each day has `date`, `dayOfWeek` and `objects`, and `objects` holds a
+    placeholder for every class whether or not a lesson was saved.
     """
-    if isinstance(body, dict):
-        if body.get("lessonId"):
-            yield body
-        for value in body.values():
-            yield from _iter_lessons(value)
-    elif isinstance(body, list):
-        for value in body:
-            yield from _iter_lessons(value)
+    days = body.get("days") if isinstance(body, dict) else None
+    if not isinstance(days, list):
+        raise SchemaDrift("getLessonsEvents returned no `days` list.")
+    for day in days:
+        if isinstance(day, dict) and day.get("date"):
+            yield day
 
 
-def find_lesson(client: PlanbookClient, *, class_id: Any, date: str) -> dict | None:
+def read_week(
+    client: PlanbookClient, *, monday: str, weeks: int = 1, saved_only: bool = True
+) -> list[dict[str, Any]]:
+    """Lessons for a week, grouped by date."""
+    body = client.post(
+        "/getLessonsEvents",
+        {"monday": monday, "userMode": "T", "fetchWeekSize": str(weeks)},
+    )
+    out = []
+    for day in iter_days(body):
+        lessons = [
+            {
+                "class_id": obj.get("classId"),
+                "class_name": obj.get("className"),
+                "lesson_id": obj.get("lessonId"),
+                "title": (obj.get("lessonText") and obj.get("lessonTitle"))
+                or obj.get("lessonTitle"),
+                "start": obj.get("startTime"),
+                "end": obj.get("endTime"),
+                "text": obj.get("lessonText"),
+                "homework": obj.get("homeworkText"),
+                "notes": obj.get("notesText"),
+                "standards": [st.get("id") for st in (obj.get("standards") or [])],
+                "assignments": [
+                    a.get("assignmentTitle") for a in (obj.get("assignments") or [])
+                ],
+                "attachments": [
+                    a.get("filename") for a in (obj.get("attachments") or [])
+                ],
+            }
+            for obj in (day.get("objects") or [])
+            if isinstance(obj, dict)
+            and (obj.get("lessonId") or not saved_only)
+            and obj.get("classId")
+        ]
+        out.append(
+            {
+                "date": day["date"],
+                "day_of_week": day.get("dayOfWeek"),
+                "lessons": lessons,
+            }
+        )
+    return out
+
+
+def find_lesson(
+    client: PlanbookClient, *, class_id: Any, date: str
+) -> dict[str, Any] | None:
     """The saved lesson for one class on one date, or None."""
-    body = client.post("/getLessonsEvents",
-                       {"monday": date, "userMode": "T", "fetchWeekSize": "1"})
+    body = client.post(
+        "/getLessonsEvents",
+        {"monday": date, "userMode": "T", "fetchWeekSize": "1"},
+    )
     wanted = str(intish(class_id))
-    for lesson in _iter_lessons(body):
-        if str(lesson.get("classId")) == wanted and lesson.get("lessonDate", date):
-            if str(lesson.get("customDate") or date) == date or True:
-                return lesson
+    for day in iter_days(body):
+        if day["date"] != date:
+            continue
+        for obj in day.get("objects") or []:
+            if (
+                isinstance(obj, dict)
+                and str(obj.get("classId")) == wanted
+                and obj.get("lessonId")
+            ):
+                return obj
     return None
 
 
@@ -567,11 +661,18 @@ def set_lesson(
         "strategySent": yn(True),
         "unitStandardsSent": yn(True),
         "statusesSent": yn(True),
-        "schoolWorks": json.dumps([
-            {"type": "ASSIGNMENT", "typeId": int(a),
-             "shortValueText": "", "longValueText": 0}
-            for a in (assignments or [])
-        ], separators=(",", ":")),
+        "schoolWorks": json.dumps(
+            [
+                {
+                    "type": "ASSIGNMENT",
+                    "typeId": int(a),
+                    "shortValueText": "",
+                    "longValueText": 0,
+                }
+                for a in (assignments or [])
+            ],
+            separators=(",", ":"),
+        ),
         "updatedFields": ",".join(updated),
         "oldLesson": "",
         "fetchDay": "true",
@@ -597,7 +698,9 @@ def set_lesson(
     if assignments:
         # Assignments belong to a class. Attaching one from a different class
         # is accepted and silently does nothing.
-        known = {str(a.get("assignmentId")): a for a in (list_assignments(client) or [])}
+        known = {
+            str(a.get("assignmentId")): a for a in (list_assignments(client) or [])
+        }
         for ident in assignments:
             record = known.get(str(ident))
             if record is None:
@@ -616,15 +719,20 @@ def set_lesson(
         # exists; on a brand-new date the id is 0 and the server drops them.
         existing = find_lesson(client, class_id=class_id, date=date)
         if existing is None:
-            client.post("/updateLesson", dict(payload, standardDBIds="",
-                                              schoolWorks="[]"))
+            client.post(
+                "/updateLesson", dict(payload, standardDBIds="", schoolWorks="[]")
+            )
             existing = find_lesson(client, class_id=class_id, date=date)
         if existing and existing.get("lessonId"):
             payload["lessonId"] = str(existing["lessonId"])
 
     client.post("/updateLesson", payload)
-    result = {"ok": True, "class_id": payload["classId"], "date": date,
-              "updated_fields": updated}
+    result = {
+        "ok": True,
+        "class_id": payload["classId"],
+        "date": date,
+        "updated_fields": updated,
+    }
     if standards is not None:
         result["standards"] = standards
     if assignments is not None:
@@ -683,12 +791,14 @@ def lesson_sections(client: PlanbookClient) -> list[dict[str, Any]]:
     for index, field in SECTION_FIELDS.items():
         label = conf.get(f"tab{index}Label") or DEFAULT_SECTION_LABELS.get(index)
         enabled = str(conf.get(f"tab{index}Enabled", "Y")).upper() != "N"
-        out.append({
-            "section": index,
-            "label": label or f"Tab {index}",
-            "enabled": enabled if index > 3 else True,
-            "field": field,
-        })
+        out.append(
+            {
+                "section": index,
+                "label": label or f"Tab {index}",
+                "enabled": enabled if index > 3 else True,
+                "field": field,
+            }
+        )
     return out
 
 
@@ -703,7 +813,7 @@ def resolve_section(sections: list[dict[str, Any]], key: str) -> int:
     for section in sections:
         if str(section["label"]).lower() == key.lower():
             return int(section["section"])
-    names = ", ".join(f'{s["section"]}={s["label"]!r}' for s in sections)
+    names = ", ".join(f"{s['section']}={s['label']!r}" for s in sections)
     raise UsageError(f"No lesson section called {key!r}. Available: {names}")
 
 
@@ -711,8 +821,7 @@ def settings(client: PlanbookClient) -> Any:
     return client.post("/getSettings")
 
 
-def standards(client: PlanbookClient, *, search: str = "",
-              raw: bool = False) -> Any:
+def standards(client: PlanbookClient, *, search: str = "", raw: bool = False) -> Any:
     """Standards available to the account.
 
     `dbId` is what attaches a standard to a lesson; the human `id` (like
@@ -722,15 +831,23 @@ def standards(client: PlanbookClient, *, search: str = "",
     if raw or not isinstance(body, dict):
         return body
     items = body.get("standards") or []
-    out = [{"db_id": st.get("dbId"), "id": st.get("sI") or st.get("id"),
+    out = [
+        {
+            "db_id": st.get("dbId"),
+            "id": st.get("sI") or st.get("id"),
             "description": st.get("sD") or st.get("desc"),
-            "subject": st.get("subject"), "category": st.get("category")}
-           for st in items]
+            "subject": st.get("subject"),
+            "category": st.get("category"),
+        }
+        for st in items
+    ]
     if search:
         needle = search.lower()
-        out = [o for o in out
-               if needle in str(o["id"]).lower()
-               or needle in str(o["description"]).lower()]
+        out = [
+            o
+            for o in out
+            if needle in str(o["id"]).lower() or needle in str(o["description"]).lower()
+        ]
     return out
 
 
@@ -783,8 +900,14 @@ def upload_attachment(client: PlanbookClient, file_path: str) -> dict[str, Any]:
 def list_attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
     body = attachments(client, teacher_id=teacher_id)
     if isinstance(body, dict) and "fileList" in body:
-        return [{"name": f.get("fileKey"), "url": f.get("fileUrl"),
-                 "size": f.get("fileSize")} for f in body["fileList"]]
+        return [
+            {
+                "name": f.get("fileKey"),
+                "url": f.get("fileUrl"),
+                "size": f.get("fileSize"),
+            }
+            for f in body["fileList"]
+        ]
     return body
 
 
@@ -896,6 +1019,25 @@ def _event_payload(
     }
 
 
+def lessons_between(
+    client: PlanbookClient, *, start: str, end: str
+) -> list[dict[str, Any]]:
+    """Saved lessons falling on or between two dates."""
+    weeks = 1
+    with contextlib.suppress(ValueError):
+        weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 1)
+    found = []
+    for day in read_week(client, monday=start, weeks=weeks):
+        if start <= day["date"] <= end or day["date"] == start:
+            found.extend(day["lessons"])
+    return found
+
+
+def _as_date(value: str) -> datetime.date:
+    month, day, year = (int(part) for part in value.split("/"))
+    return datetime.date(year, month, day)
+
+
 def create_event(
     client: PlanbookClient,
     *,
@@ -908,19 +1050,35 @@ def create_event(
     private: bool = False,
     no_school: bool = False,
     repeats: str = "daily",
+    force: bool = False,
     dry_run: bool = False,
 ) -> Any:
-    payload = _event_payload({
-        "repeats": repeats,
-        "eventTitle": title,
-        "eventDate": date,
-        "endDate": end_date or date,
-        "eventText": text,
-        "eventStartTime": start_time,
-        "eventEndTime": end_time,
-        "privateFlag": private,
-        "noSchool": no_school,
-    })
+    if no_school and not dry_run and not force:
+        # Marking a day no-school DELETES the lessons on it, permanently -
+        # removing the event afterwards does not bring them back.
+        doomed = lessons_between(client, start=date, end=end_date or date)
+        if doomed:
+            names = ", ".join(sorted({str(x["class_name"]) for x in doomed}))
+            raise UsageError(
+                f"{len(doomed)} lesson(s) already exist on {date}"
+                + (f"-{end_date}" if end_date and end_date != date else "")
+                + f" ({names}).\nMarking the day no-school deletes them "
+                "permanently; deleting the event later does not restore them. "
+                "Pass --force if that is what you want."
+            )
+    payload = _event_payload(
+        {
+            "repeats": repeats,
+            "eventTitle": title,
+            "eventDate": date,
+            "endDate": end_date or date,
+            "eventText": text,
+            "eventStartTime": start_time,
+            "eventEndTime": end_time,
+            "privateFlag": private,
+            "noSchool": no_school,
+        }
+    )
     payload["updatedFields"] = "extraDays"
     payload["updateCurrentEvent"] = "false"
     if dry_run:
@@ -962,9 +1120,12 @@ def delete_event(
     if dry_run:
         return {"dry_run": True, "endpoint": "/deleteEvent", "payload": payload}
     client.post("/deleteEvent", payload)
-    return {"ok": True, "deleted_event_id": payload["eventId"],
-            "title": payload["eventTitle"],
-            "scope": "occurrence" if occurrence_only else "series"}
+    return {
+        "ok": True,
+        "deleted_event_id": payload["eventId"],
+        "title": payload["eventTitle"],
+        "scope": "occurrence" if occurrence_only else "series",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1030,14 +1191,24 @@ def create_unit(
     end: str = "",
     dry_run: bool = False,
 ) -> Any:
-    payload = _unit_payload(action="A", class_id=class_id, number=number,
-                            title=title, description=description,
-                            start=start, end=end)
+    payload = _unit_payload(
+        action="A",
+        class_id=class_id,
+        number=number,
+        title=title,
+        description=description,
+        start=start,
+        end=end,
+    )
     if dry_run:
         return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
     client.post("/updateUnit", payload)
-    return {"ok": True, "class_id": payload["subjectId"], "number": number,
-            "title": title}
+    return {
+        "ok": True,
+        "class_id": payload["subjectId"],
+        "number": number,
+        "title": title,
+    }
 
 
 def update_unit(
@@ -1052,9 +1223,16 @@ def update_unit(
     end: str = "",
     dry_run: bool = False,
 ) -> Any:
-    payload = _unit_payload(action="U", class_id=class_id, unit_id=unit_id,
-                            number=number, title=title, description=description,
-                            start=start, end=end)
+    payload = _unit_payload(
+        action="U",
+        class_id=class_id,
+        unit_id=unit_id,
+        number=number,
+        title=title,
+        description=description,
+        start=start,
+        end=end,
+    )
     if dry_run:
         return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
     client.post("/updateUnit", payload)
@@ -1131,20 +1309,24 @@ def create_todo(
         todo_id = created.get("toDoId")
     if not todo_id:
         raise SchemaDrift(
-            "Creating a to-do did not return a toDoId. "
-            f"Response was: {created!r}"
+            f"Creating a to-do did not return a toDoId. Response was: {created!r}"
         )
-    payload = _todo_payload(todo_id=todo_id, text=text, start=start, due=due,
-                            priority=priority, done=done, repeats=repeats)
+    payload = _todo_payload(
+        todo_id=todo_id,
+        text=text,
+        start=start,
+        due=due,
+        priority=priority,
+        done=done,
+        repeats=repeats,
+    )
     try:
         client.post("/updateToDo", payload)
     except PlanbookError:
         # Step one already created an empty row. Leaving it behind would put
         # a blank to-do in the user's list with no sign of where it came from.
-        try:
+        with contextlib.suppress(PlanbookError):
             delete_todo(client, todo_id=todo_id)
-        except PlanbookError:
-            pass
         raise
     return {"ok": True, "todo_id": todo_id, "text": text}
 
@@ -1160,9 +1342,18 @@ def update_todo(
     done: bool = False,
     repeats: str = "daily",
 ) -> dict[str, Any]:
-    client.post("/updateToDo", _todo_payload(
-        todo_id=todo_id, text=text, start=start, due=due,
-        priority=priority, done=done, repeats=repeats))
+    client.post(
+        "/updateToDo",
+        _todo_payload(
+            todo_id=todo_id,
+            text=text,
+            start=start,
+            due=due,
+            priority=priority,
+            done=done,
+            repeats=repeats,
+        ),
+    )
     return {"ok": True, "todo_id": intish(todo_id)}
 
 

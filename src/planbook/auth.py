@@ -13,7 +13,7 @@ nothing short of a real API call proves success.
 from __future__ import annotations
 
 import re
-from typing import Iterator
+from collections.abc import Iterator
 
 import requests
 
@@ -39,7 +39,11 @@ def _session_cookies(http: requests.Session) -> Iterator[str]:
     """Yield every distinct access token in the jar, newest-looking first."""
     seen: list[str] = []
     for cookie in http.cookies:
-        if cookie.name.endswith(".accesstoken") and cookie.value and cookie.value not in seen:
+        if (
+            cookie.name.endswith(".accesstoken")
+            and cookie.value
+            and cookie.value not in seen
+        ):
             seen.append(cookie.value)
     # Reverse: the post-login cookie is set after the pre-auth one.
     yield from reversed(seen)

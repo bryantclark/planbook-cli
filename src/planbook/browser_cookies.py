@@ -10,7 +10,7 @@ consent boundary, and "Always Allow" makes later runs silent.
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 from .errors import LoginFailed
 
@@ -69,7 +69,10 @@ def diagnose() -> dict[str, str]:
             message = str(exc)
             if "key for cookie decryption" in message.lower():
                 report[browser] = "locked (Keychain access denied)"
-            elif "not installed" in message.lower() or "could not find" in message.lower():
+            elif (
+                "not installed" in message.lower()
+                or "could not find" in message.lower()
+            ):
                 report[browser] = "not installed"
             else:
                 report[browser] = f"unreadable: {message[:60]}"

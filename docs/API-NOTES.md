@@ -251,3 +251,26 @@ same name replaces the object everywhere it is linked.
 Files come back on the lesson as `attachments` with `filename`, `url` and
 `privateFlag`, and in the account-wide list from `/getAttachmentList` as `fileList`
 with `fileKey`, `fileUrl`, `fileSize`.
+
+
+## No-school days destroy lessons
+
+Creating an event with `noSchool=true` **permanently deletes every lesson on that
+date**. Deleting the event afterwards restores the empty class slots but not the
+lessons - verified by losing six real lessons to it.
+
+Nothing in the API signals this: `addEvent` answers the same as any other event.
+The CLI checks for existing lessons first and refuses without `--force`.
+
+## getLessonsEvents
+
+Fully decoded. The body has a `days` list, one entry per day of the fetched range:
+
+```json
+{"date": "09/07/2026", "dayOfWeek": "Monday", "objects": [ ... ]}
+```
+
+**Lessons carry no date of their own** - the date comes from the day they sit in,
+which is why they cannot be matched by date from the lesson record alone. `objects`
+holds a placeholder for every class that meets that day; only entries with a
+`lessonId` have been saved. Events appear in the same list with `"type": "E"`.

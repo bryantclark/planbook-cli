@@ -175,7 +175,17 @@ MIT.
 ## Releasing (maintainer)
 
 Merges to `main` are gathered by release-please into a version-bump PR. Merge
-that PR to tag a release; the tag triggers a PyPI publish.
+that PR to tag a release; the same workflow then publishes to PyPI.
+
+Commit messages drive the bump: `feat:` -> minor, `fix:` -> patch (conventional
+commits). When squash-merging a PR, give it a conventional title.
+
+One quirk: the release PR is opened by the Actions bot, and GitHub does not run
+CI on a bot-opened PR, so its required checks stay empty and it cannot be
+merged as-is. Close and immediately reopen the release PR once (`gh pr close N
+&& gh pr reopen N`) to trigger CI, then merge. To skip this step permanently,
+give release-please a fine-grained PAT (a free stored secret) instead of the
+default token.
 
 First publish needs a one-time PyPI setup (free): create the `planbook-cli`
 project on PyPI, add a *trusted publisher* for this repo

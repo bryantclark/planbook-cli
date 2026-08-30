@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.2.2...planbook-cli-v0.3.0) (2026-08-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* `planbook auth login` and `planbook auth browser` are gone.
+
+### Documentation
+
+* restructure to standard project shape, cut duplication ([#11](https://github.com/bryantclark/planbook-cli/issues/11)) ([980f7ad](https://github.com/bryantclark/planbook-cli/commit/980f7ad363a8b6603de5a466a41e0fed87d91edf))
+* security policy, production-readiness plan, and one auth path ([#12](https://github.com/bryantclark/planbook-cli/issues/12)) ([a91518e](https://github.com/bryantclark/planbook-cli/commit/a91518ec50c9c0ccff6a3bc8fa54131b4671a03a))
+
 ## [0.2.2](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.2.1...planbook-cli-v0.2.2) (2026-08-30)
 
 

@@ -72,12 +72,25 @@ def create_unit(
         start=start,
         end=end,
     )
+
+    # /updateUnit does not report the new id. Diff the class's units around the
+    # write so the caller gets a unit_id to update or delete.
+    def unit_ids() -> set[str]:
+        return {
+            str(u.get("unitId"))
+            for u in (list_units(client) or [])
+            if isinstance(u, dict) and str(u.get("subjectId")) == str(intish(class_id))
+        }
+
+    before = unit_ids()
     client.post("/updateUnit", payload)
+    created = unit_ids() - before
     return {
         "ok": True,
         "class_id": payload["subjectId"],
         "number": number,
         "title": title,
+        "unit_id": created.pop() if len(created) == 1 else None,
     }
 
 

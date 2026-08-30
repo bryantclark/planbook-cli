@@ -504,6 +504,7 @@ def test_no_school_event_allowed_with_force():
     # --force must bypass the guard AND actually send noSchool=true; the old
     # test only checked ok, so it would have passed even if force did nothing.
     responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
+    responses.post(f"{API_BASE}/getEvents", json={"events": []})
     responses.post(f"{API_BASE}/addEvent", json={"events": []})
     result = api.create_event(
         PlanbookClient("t.t.t"),

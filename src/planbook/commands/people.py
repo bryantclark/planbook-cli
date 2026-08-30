@@ -13,9 +13,11 @@ def cmd_students_list(args: argparse.Namespace) -> None:
 
 
 def cmd_students_create(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
     emit(
         api.create_student(
-            client_from(args),
+            client,
+            dry_run=args.dry_run,
             first_name=args.first_name,
             last_name=args.last_name,
             code=args.code or "",
@@ -34,6 +36,7 @@ def cmd_students_update(args: argparse.Namespace) -> None:
             client_from(args),
             student_id=args.student_id,
             class_id=args.class_id,
+            dry_run=args.dry_run,
             first_name=args.first_name,
             last_name=args.last_name,
             code=args.code,

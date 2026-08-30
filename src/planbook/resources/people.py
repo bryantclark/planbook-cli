@@ -79,9 +79,35 @@ def student_payload(
     return payload
 
 
-def create_student(client: PlanbookClient, **fields: Any) -> dict[str, Any]:
+def create_student(
+    client: PlanbookClient | None, *, dry_run: bool = False, **fields: Any
+) -> dict[str, Any]:
+    if dry_run:
+        return {
+            "dry_run": True,
+            "endpoint": "/addStudentServlet",
+            "payload": student_payload(**fields),
+        }
+
+    assert client is not None  # only the dry_run branch runs without one
+
+    # /addStudentServlet does not report the new id. Diff the account roster
+    # around the write so the caller gets a student_id to update or delete.
+    def roster_ids() -> set[str]:
+        return {
+            str(s.get("id"))
+            for s in (list_students(client) or [])
+            if isinstance(s, dict) and s.get("id") is not None
+        }
+
+    before = roster_ids()
     client.post("/addStudentServlet", student_payload(**fields))
-    return {"ok": True, "name": f"{fields['first_name']} {fields['last_name']}"}
+    created = roster_ids() - before
+    return {
+        "ok": True,
+        "name": f"{fields['first_name']} {fields['last_name']}",
+        "student_id": created.pop() if len(created) == 1 else None,
+    }
 
 
 def find_student(
@@ -105,7 +131,12 @@ def find_student(
 
 
 def update_student(
-    client: PlanbookClient, *, student_id: Any, class_id: Any, **fields: Any
+    client: PlanbookClient,
+    *,
+    student_id: Any,
+    class_id: Any,
+    dry_run: bool = False,
+    **fields: Any,
 ) -> dict[str, Any]:
     """Update a student, carrying over whatever the caller did not name.
 
@@ -140,6 +171,12 @@ def update_student(
         birthdate=keep("birthdate", "birthDate", "studentBirthDate"),
         middle_name=keep("middle_name", "middleName", "studentMiddleName"),
     )
+    if dry_run:
+        return {
+            "dry_run": True,
+            "endpoint": "/updateStudentServlet",
+            "payload": payload,
+        }
     client.post("/updateStudentServlet", payload)
     return {"ok": True, "student_id": intish(student_id)}
 

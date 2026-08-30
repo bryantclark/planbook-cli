@@ -2,50 +2,45 @@
 
 Working list. Delete this file before the final push.
 
-## BLOCKED - needs one action from Bryant
-`planbook auth import` times out on an unanswered macOS Keychain prompt, so I
-cannot get a token. Run it in your own terminal and click **Always Allow**:
-
-    planbook auth import && planbook auth status
-
-Until then everything needing a live call is stalled. Offline work continues.
-
 ## 1. Loop review
-- [x] Full pass 1 (Claude) - fixed: updatedFields data loss, events delete
-      --dry-run deleting, cross-year date comparison, raw --json ignored,
-      bulk dry-run/validation gaps, self-asserting test
-- [x] Full pass 2 (codex/gpt-5.6) - fixed: customStart/startTime carry-over
-      blanking times, unitId/lessonLock/extraLesson reset on every edit,
-      missing events create --force, todo rollback, OSError exit code
-- [ ] Full pass 3 - must come back CLEAN for the loop to converge
-- [ ] Comment-cleanup agent (loop mode requires one per full pass)
+- [x] Pass 1 (Claude) - updatedFields data loss, events delete --dry-run
+      deleting, cross-year date compare, raw --json ignored, bulk gaps
+- [x] Pass 2 (codex) - customStart/startTime carry-over, unitId/lessonLock
+      reset, missing events create --force, todo rollback, OSError exit code
+- [ ] Pass 3 - running; must come back clean for the loop to converge
+- [ ] Comment-cleanup agent - running
 
-## 2. Codex test
-- [x] integrations/codex-AGENTS.md written and installed to ~/.codex/AGENTS.md
-- [x] codex CLI present (0.145.0) and authed
+## 2. Live verification - DONE
+- [x] All 20 command groups exercised against the account
+- [x] Full CRUD: classes, lessons, todos, units, events, students, attachments
+- [x] Read-modify-write verified live on lessons and classes
+- [x] Scratch data removed (one attachment remains; no delete endpoint exists)
+
+Found and fixed in the sweep:
+- token identity claims: two issuer shapes, only one parsed -> every id null
+- teacher/year id now fall back to a live lookup
+- lessons --start-time/--end-time silently ignored by the server -> removed
+- notes and standards-report can never succeed -> marked blocked, not offered
+- ids were half positional, half flags -> all named now
+
+## 3. Gates
+- [x] pytest 75, mypy strict, ruff check + format
+- [ ] Re-run after the comment pass
+- [ ] CI green on GitHub after the final push
+
+## 4. Docs
+- [x] AGENTS.md, SKILL.md, API-NOTES corrected for all of the above
+- [x] Every documented flag cross-checked against --help (0 mismatches)
+
+## 5. Codex agent test
+- [x] integrations/codex-AGENTS.md installed to ~/.codex/AGENTS.md
 - [ ] Fresh low-context codex agent builds a week of plans, no CLI hint
 - [ ] Fix what its process notes expose
 
-## 3. Live verification (BLOCKED on token)
-- [x] Offline dry-run sweep: all 11 pass
-- [x] Exit codes verified: 64 usage / 77 no-auth / 0 ok
-- [ ] Every one of the 49 commands exercised against the account
-- [ ] Remove scratch data afterwards
-
-## 4. Gates - all green as of 96b6e97
-- [x] pytest 75 passed
-- [x] mypy strict clean
-- [x] ruff check + format clean
-- [ ] CI green on GitHub (re-check after final push)
-
-## 5. Docs truth pass
-- [x] AGENTS.md GET/JSON correction, read-before-write cost, command table
-- [x] README endpoint count destaled
-- [ ] Final pass: every subcommand --help vs AGENTS.md and SKILL.md, one by one
-
-## 6. Stretch - only with a captured request
-- [ ] filterNotes / bumpLesson / extendLesson: each wants an unnamed int param
-- [ ] Attendance write path: none exists under /services/planbook/attendance/*
+## 6. Blocked - needs a captured browser request
+filterNotes, bumpLesson, extendLesson, getStandardsReport each want an integer
+the server refuses to name. Every plausible spelling tried. Attendance has no
+write endpoint at all.
 
 ## 7. Finish
 - [ ] Delete TODO.md, final push, report

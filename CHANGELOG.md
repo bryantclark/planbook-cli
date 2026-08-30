@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.2.1...planbook-cli-v0.2.2) (2026-08-30)
+
+
+### Bug Fixes
+
+* install from PyPI now that the package is published ([#9](https://github.com/bryantclark/planbook-cli/issues/9)) ([7934007](https://github.com/bryantclark/planbook-cli/commit/7934007ee8e5c1aead34d79c3843b616d5f210c4))
+
 ## [0.2.1](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.2.0...planbook-cli-v0.2.1) (2026-08-30)
 
 

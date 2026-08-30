@@ -10,7 +10,7 @@ paths:
 ## No network calls
 
 Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
-Response fixtures are inline in the test modules (`conftest.py` and `test_*.py`).
+Response fixtures are inline in the `test_*.py` modules. `conftest.py` holds config isolation only.
 
 ## What to test
 
@@ -22,4 +22,4 @@ Response fixtures are inline in the test modules (`conftest.py` and `test_*.py`)
 
 ## Where tests live
 
-- `tests/` at the repo root, mirroring `src/planbook/` structure.
+- `tests/` at the repo root, flat: one module per area (`test_api.py`, `test_cli.py`).

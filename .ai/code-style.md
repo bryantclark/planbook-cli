@@ -14,7 +14,7 @@ paths:
 
 - Wire keys use the server's abbreviated names (`cId`, `mT`, `lessonText`).
   Public-facing output uses readable snake_case (`class_id`, `teaches`, `text`).
-- Translation between wire and readable happens in `resources/` or `api.py`, nowhere else.
+- Translation between wire and readable happens in `wire.py`, `resources/` or `api.py`. Two exceptions pass wire records through unchanged: some list endpoints (`units`, `todos`, `events`) and every `--raw` flag.
 
 ## Error handling
 
@@ -25,7 +25,7 @@ paths:
 ## Imports
 
 - Standard library, then third-party, then project. `ruff` enforces ordering.
-- Every module has `from __future__ import annotations`. Keep it.
+- Every module with annotations starts with `from __future__ import annotations`. Keep it.
 
 ## Formatting
 

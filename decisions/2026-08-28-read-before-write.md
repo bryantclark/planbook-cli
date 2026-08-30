@@ -7,7 +7,7 @@ tags: [api, correctness]
 
 # Read before every write
 
-The server does full-record replace on `/updateLesson`, `/updateToDo`, and
-`/updateClass/v10`. A payload built from defaults silently erases anything it
-didn't restate. The CLI reads first and merges so callers don't have to pass
+The server does full-record replace on `/updateLesson`, `/updateToDo`,
+`/updateClass/v10`, `/updateUnit` and `/updateStudentServlet`. A payload built
+from defaults silently erases anything it didn't restate. The CLI reads first and merges so callers don't have to pass
 every field. This costs one extra request per write.

@@ -1,7 +1,7 @@
 # planbook-cli
 
 Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
-plans, units, events, grades, and more — built for both people and AI agents.
+plans and the schedule around them; reads grades and attendance — built for both people and AI agents.
 
 No published API exists yet; this tool talks to the same API the web app uses.
 See [docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details.
@@ -34,9 +34,9 @@ planbook lessons set --class-id 12345678 --date 09/03/2026 \
 
 ## Authentication
 
-- **`auth import`** (recommended) — reads the cookie from your browser. On macOS, approve the Keychain prompt (**Always Allow**).
+- **`auth import`** (recommended) — reads the token from your browser. On macOS, approve the Keychain prompt (**Always Allow**).
 - **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output.
-- **`auth login`** — username/password for Planbook-native accounts.
+- **`auth login`** — username/password for Planbook-native accounts. Untested; the maintainer's account uses SSO.
 - **`auth browser`** — not recommended; identity providers refuse automated browsers.
 
 Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` overrides for CI.
@@ -61,7 +61,14 @@ There's evidence of a sanctioned API-key mechanism. If you depend on this tool, 
 
 ## Agent discovery
 
-Install the [skill](skills/planbook/SKILL.md) so Claude finds the CLI automatically, or install the repo as a [plugin](/.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md) for the full agent-facing reference.
+Install the skill so Claude finds the CLI automatically:
+
+```bash
+mkdir -p ~/.claude/skills/planbook && cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
+```
+
+Or install the repo as a [plugin](.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md)
+for the full agent-facing reference, and [docs/mapping.md](docs/mapping.md) to add endpoints.
 
 ## Licence
 

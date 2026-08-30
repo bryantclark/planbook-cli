@@ -39,10 +39,17 @@ unknown paths. A 200 proves nothing. Read the body.
 ## Conventions
 
 - Most calls are **POST**, `application/x-www-form-urlencoded`. Exceptions: GET-only `/services/planbook/**` and a few JSON-body endpoints (see "Two request styles" below).
-- Booleans: `Y`/`N` (not true/false). Exception: `fetchDay` is literal `true`.
+- Booleans are `Y`/`N` on class day-teach flags and lesson flags. Event and class *control* fields are literal `true`/`false`: `noSchool`, `noCycle`, `privateFlag`, `verifyShift`, `scheduleChange`. `fetchDay` on `/updateLesson` is literal `true` too.
+- `shiftLessons` is the exception to the exception: `N` on `/addEvent`, `false` on `/deleteEvent` and the class endpoints. A wrong value is a silent no-op.
 - Absent integers: `0`, never `""` (empty triggers a Java NPE).
 - Dates: `MM/DD/YYYY`.
 - Abbreviated class keys: `cId`, `cN`, `cYId`, `mT`/`tT`/`wT` (teach flags), `mSt`/`mEt` (times).
+- `scheduleChange=true` is required when updating a class, or the rename lands and the new schedule is silently discarded.
+- `verifyShift=true` means check, don't commit. Events and classes answer exactly like success and write nothing. Commit with `false`.
+- `teachDay1` is **Sunday**, not Monday, in the class schedule JSON.
+- `subjectId` is the class id on the unit endpoints, on assignment records, and on `/getStudentScoresServlet`.
+
+`raw` applies none of these for you.
 
 ## Endpoints observed
 
@@ -96,13 +103,17 @@ See [read-before-write decision](../decisions/2026-08-28-read-before-write.md). 
 |---|---|---|
 | `/updateLesson` | `lessonText`, `homeworkText`, `notesText` | emptied |
 | `/updateLesson` | `schoolWorks` | `[]` — detached all assignments |
+| `/updateLesson` | `unitId`, `lessonLock`, `extraLesson`, `linkedLessonId` | reset to defaults |
 | `/updateToDo` | `priority`, `done`, `dueDate`, `repeats` | reopened at low priority |
-| `/updateClass/v10` | `classDesc`, `color`, per-day times | wiped |
+| `/updateClass/v10` | `classDesc`, `color`, `lessonLayoutId`, per-day times | wiped |
+| `/updateUnit` | `unitDesc`, `unitStart`, `unitEnd`, `unitNum`, `unitTitle`, and the six section texts (`unitLessonText`, `unitHomeworkText`, `unitNotesText`, `unitSection4Text`–`unitSection6Text`) | emptied |
+| `/updateStudentServlet` | email, phone, parent email, code, birthdate, middle name, `studentPhotoUrl` | emptied |
 
 ## Standards and assignments on a lesson
 
 Both go through `/updateLesson` and only stick to a lesson that already exists —
-on a new date (`lessonId=0`) the server drops them silently.
+on a new date (`lessonId=0`) the server drops them silently. The CLI writes the
+lesson first, re-reads its `lessonId`, then attaches.
 
 **Standards** use `standardDBIds` with the **`dbId`**, not the human id:
 
@@ -144,7 +155,8 @@ attachmentNames=file.txt   attachmentURL=https://s3/...   attachmentPrivate=N
 ## No-school days destroy lessons
 
 Creating an event with `noSchool=true` **permanently deletes every lesson on that
-date**. Deleting the event restores the empty slots but not the lessons.
+date**. Deleting the event restores the empty slots but not the lessons. The CLI
+checks for existing lessons first and refuses without `events create --force`.
 
 ## Times
 
@@ -221,3 +233,7 @@ allow discretionary termination. Risk is account termination, not legal.
 
 - Headless form login against `auth.planbook.com` — untested (account uses SSO).
 - CSV import columns unconfirmed (sample file behind a HubSpot bot-check).
+- The GET-side carry-over field names for `units update` (`unitDesc`, `unitStart`,
+  `unitEnd`, the six section texts) and `students update` (`phoneNumber`,
+  `parentEmailAddress`, `birthDate`) are inferred and tested only against mocks.
+  A wrong spelling blanks the field on every update. Confirm each against a live read.

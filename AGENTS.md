@@ -30,7 +30,7 @@ planbook classes list
 
 ### Output contract
 
-- **stdout** is JSON on success, empty on failure.
+- **stdout** is JSON on success, empty on failure. Exception: `lessons bulk` prints per-item results and exits 1 when any item failed.
 - **stderr** is prose diagnostics. Never parse it.
 - **Exit codes:**
 
@@ -68,14 +68,27 @@ Run `planbook <group> --help` for exact flags.
 | `grades` | grade periods and scored assignments |
 | `templates` | lesson templates |
 | reads | `assignments`, `assessments`, `schools`, `standards`, `comments`, `settings`, `schedule special-days` |
-| `attachments` | list, upload, link to lessons |
+| `attachments` | `list`, `upload`; link with `lessons set --attach` |
 | `raw` | POST to any endpoint; `--get` for GET paths, `--json` for JSON bodies |
 | `endpoints` | shows what is mapped |
+
+Every `create` returns the new record's id, so you can chain without a second
+lookup. Only `todo_id` is guaranteed. `class_id`, `unit_id`, `event_id` and
+`student_id` are recovered by diffing the list around the write, so they come
+back `null` if more than one record appeared — fall back to a `list`. `students
+update` needs `--class-id` as well as `--student-id`.
+
+`classes list` and `students list` normalise the id key to `id`. `units list`,
+`todos list` and `events list` return undecoded wire records, keyed `unitId`,
+`toDoId` and `eventId`.
 
 ### Authentication
 
 `auth status` and `auth import` are safe unattended. `auth import` may raise a
-macOS Keychain prompt. Without a TTY it fails fast (exit 64).
+macOS Keychain prompt. Without a TTY it never waits for you to sign in: it
+succeeds if a browser or the stored session holds a usable token, and exits 64 if
+neither does. A Keychain
+prompt can still block it.
 
 `auth browser`, `auth login`, and `auth token` need a human. Never run them
 unattended.
@@ -109,17 +122,20 @@ Confirm with the user before running any of these:
 
 - `classes delete --class-id N --yes` — removes the class **and every lesson in it**
 - `lessons delete --class-id N --date D`
-- `events delete --event-id N` — removes the **whole series** by default
+- `events delete --event-id N` — removes the **whole series** by default; `--occurrence-only` deletes only the occurrence the event record points at
+- `events create --no-school` — permanently deletes every lesson on that date, or across `--date`…`--end-date`. The CLI refuses if lessons already exist; `--force` deletes them.
 - `units delete --unit-id N --class-id N`
 - `todos delete --todo-id N`
-- `students delete --student-id N` — immediate, no `--yes`
+- `students delete --student-id N`
+
+`classes delete` is the only one that requires `--yes`. The rest act immediately.
 
 ### Limitations
 
 - `grades` and `attendance` are read-only.
 - Seating charts, lesson banks, messages, and reporting are not mapped.
 - `filterNotes` is blocked on an unknown parameter.
-- Every auth path needs a human.
+- Signing in needs a human at the keyboard: `auth browser`, `auth login`, `auth token`. `auth status` and `auth import` then run unattended.
 
 ## Safety
 

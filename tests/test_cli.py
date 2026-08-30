@@ -196,7 +196,7 @@ def test_events_delete_dry_run_sends_no_delete(capsys, session_file):
             ]
         },
     )
-    assert cli.main(["events", "delete", "7", "--dry-run"]) == 0
+    assert cli.main(["events", "delete", "--event-id", "7", "--dry-run"]) == 0
     assert not [c for c in responses.calls if c.request.url.endswith("/deleteEvent")]
     assert json.loads(capsys.readouterr().out)["dry_run"] is True
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from ..client import PlanbookClient
 from ..errors import SchemaDrift, UsageError
-from ..wire import Payload, intish, parse_time, yn
+from ..wire import Payload, intish, yn
 from .misc import list_assignments, settings
 
 
@@ -148,8 +148,6 @@ def lesson_payload(
     homework: str | None = None,
     notes: str | None = None,
     unit_id: Any = None,
-    start_time: str | None = None,
-    end_time: str | None = None,
     sections: dict[int, str] | None = None,
     standards: list[str] | None = None,
     assignments: list[Any] | None = None,
@@ -169,13 +167,6 @@ def lesson_payload(
         updated.append("HOMEWORKTEXT")
     if notes is not None:
         updated.append("NOTESTEXT")
-    if (start_time is None) != (end_time is None):
-        raise UsageError(
-            "Pass --start-time and --end-time together. The server stores them "
-            "as a pair, so sending one alone clears the other."
-        )
-    if start_time is not None:
-        updated.extend(["CUSTOMSTART", "CUSTOMEND"])
     section_text = dict(sections or {})
     for index in section_text:
         updated.append(SECTION_FIELDS[index].upper())
@@ -188,7 +179,7 @@ def lesson_payload(
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
-            "--homework, --notes, --start-time, --end-time."
+            "--homework, --notes, --section, --standard, --assignment, --attach."
         )
 
     payload: dict[str, Any] = {
@@ -206,8 +197,10 @@ def lesson_payload(
         "tab5Text": section_text.get(5, ""),
         "tab6Text": section_text.get(6, ""),
         "addClassDaysCode": "",
-        "customStart": parse_time(start_time),
-        "customEnd": parse_time(end_time),
+        # Sent because the server rejects the form without them; a lesson
+        # always keeps its class period's times. See docs/API-NOTES.md.
+        "customStart": "",
+        "customEnd": "",
         "lessonLock": yn(False),
         "isEditingALinkedLesson": yn(False),
         "strategySent": yn(True),
@@ -255,8 +248,6 @@ def set_lesson(
     homework: str | None = None,
     notes: str | None = None,
     unit_id: Any = None,
-    start_time: str | None = None,
-    end_time: str | None = None,
     sections: dict[int, str] | None = None,
     standards: list[str] | None = None,
     assignments: list[Any] | None = None,
@@ -280,11 +271,6 @@ def set_lesson(
             homework if homework is not None else _html(existing.get("homeworkText"))
         )
         notes = notes if notes is not None else _html(existing.get("notesText"))
-        if start_time is None and end_time is None:
-            # A saved lesson reports its times as startTime/endTime; only the
-            # write side calls them customStart/customEnd.
-            start_time = _html(existing.get("startTime")) or None
-            end_time = _html(existing.get("endTime")) or None
         if unit_id is None:
             unit_id = existing.get("unitId")
         carried = {
@@ -310,8 +296,6 @@ def set_lesson(
         homework=homework,
         notes=notes,
         unit_id=unit_id,
-        start_time=start_time,
-        end_time=end_time,
         sections=sections,
         standards=standards,
         assignments=assignments,

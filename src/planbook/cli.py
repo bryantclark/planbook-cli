@@ -218,13 +218,13 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
-    c.add_argument("class_id")
+    c.add_argument("--class-id", dest="class_id", required=True)
     c.add_argument(
         "--yes", action="store_true", help="required: confirms the lessons go too"
     )
     c.set_defaults(func=cmd_classes_delete)
     c = s_cls.add_parser("get", help="fetch one class by id")
-    c.add_argument("class_id")
+    c.add_argument("--class-id", dest="class_id", required=True)
     c.set_defaults(func=cmd_classes_get)
 
     p_les = sub.add_parser("lessons", help="read and write lessons")
@@ -239,13 +239,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub_lesson.add_argument("--homework")
     sub_lesson.add_argument("--notes")
     sub_lesson.add_argument("--unit-id", dest="unit_id")
-    sub_lesson.add_argument(
-        "--start-time",
-        dest="start_time",
-        metavar="TIME",
-        help="lesson start, e.g. 9:00am or 14:30",
-    )
-    sub_lesson.add_argument("--end-time", dest="end_time", metavar="TIME")
     sub_lesson.add_argument(
         "--attach",
         action="append",
@@ -290,7 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
         "file",
         help="JSON list of lesson objects; keys: "
         "class_id, date, title, text, homework, notes, "
-        "unit_id, start_time, end_time, sections",
+        "unit_id, sections",
     )
     sub_lesson.add_argument(
         "--class-id", dest="class_id", help="default class_id for items that omit one"
@@ -332,8 +325,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_sch = sub.add_parser("schedule", help="school calendar")
     s_sch = p_sch.add_subparsers(dest="schedule_command", required=True)
     s = s_sch.add_parser("special-days", help="holidays and non-teaching days")
-    s.add_argument("--teacher-id", dest="teacher_id", required=True)
-    s.add_argument("--year-id", dest="year_id", required=True)
+    s.add_argument("--teacher-id", dest="teacher_id", help="default: from the token")
+    s.add_argument("--year-id", dest="year_id", help="default: from the token")
     s.add_argument("--school-id", dest="school_id", default=0)
     s.set_defaults(func=cmd_schedule_special_days)
 
@@ -360,7 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
         t.add_argument("--repeats", default="daily")
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
-    t.add_argument("todo_id")
+    t.add_argument("--todo-id", dest="todo_id", required=True)
     t.set_defaults(func=cmd_todos_delete)
 
     p_un = sub.add_parser("units", help="list, create, update and delete units")
@@ -425,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     e = s_ev.add_parser(
         "delete", help="delete an event by id (the whole series by default)"
     )
-    e.add_argument("event_id")
+    e.add_argument("--event-id", dest="event_id", required=True)
     e.add_argument(
         "--occurrence-only",
         dest="occurrence_only",
@@ -456,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
         st.add_argument("--birthdate", metavar="MM/DD/YYYY")
         st.set_defaults(func=fn)
     st = s_st.add_parser("delete", help="delete a student")
-    st.add_argument("student_id")
+    st.add_argument("--student-id", dest="student_id", required=True)
     st.set_defaults(func=cmd_students_delete)
 
     p = sub.add_parser("attendance", help="read attendance for a class on a date")

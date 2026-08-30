@@ -69,11 +69,13 @@ SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
     "schools": ("/getSchools", "schools"),
-    "notes": ("/services/planbook/newNote/filterNotes", None),
     "students": ("/services/planbook/student/getAllFromSchool", None),
-    "standards-report": ("/getStandardsReport", None),
     "comments": ("/getCommentsTo", None),
 }
+# /getStandardsReport and /services/planbook/newNote/filterNotes are not here
+# on purpose: each demands an integer parameter the server will not name, and
+# every spelling tried comes back with the same null-parse. Reachable through
+# `planbook raw` once a real request has been captured. See docs/API-NOTES.md.
 
 
 def simple_read(

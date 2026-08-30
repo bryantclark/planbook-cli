@@ -68,8 +68,6 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             homework=args.homework,
             notes=args.notes,
             unit_id=args.unit_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
             sections=_sections_from(args, None),
             standards=args.standard or None,
             assignments=args.assignment or None,
@@ -97,8 +95,6 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             homework=args.homework,
             notes=args.notes,
             unit_id=args.unit_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
             sections=_sections_from(args, client),
             standards=args.standard if args.standard else None,
             assignments=args.assignment if args.assignment else None,
@@ -130,8 +126,6 @@ BULK_KEYS = {
     "homework",
     "notes",
     "unit_id",
-    "start_time",
-    "end_time",
     "sections",
 }
 
@@ -182,7 +176,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
             )
         _require_class_id(item, args, index)
         # Build every payload up front. It is pure, and it is where value
-        # errors live (bad times, a lone --start-time, an unknown section),
+        # errors live (an unknown section, a bad standard id),
         # which SKILL.md promises cannot half-apply a week.
         api.lesson_payload(
             class_id=_require_class_id(item, args, index),
@@ -192,8 +186,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
             homework=item.get("homework"),
             notes=item.get("notes"),
             unit_id=item.get("unit_id"),
-            start_time=item.get("start_time"),
-            end_time=item.get("end_time"),
         )
 
     if args.dry_run:
@@ -210,8 +202,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                         homework=item.get("homework"),
                         notes=item.get("notes"),
                         unit_id=item.get("unit_id"),
-                        start_time=item.get("start_time"),
-                        end_time=item.get("end_time"),
                         sections=_bulk_sections(item, args, index),
                     )[0],
                 }
@@ -241,8 +231,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                     homework=item.get("homework"),
                     notes=item.get("notes"),
                     unit_id=item.get("unit_id"),
-                    start_time=item.get("start_time"),
-                    end_time=item.get("end_time"),
                     sections=_bulk_sections(item, args, index),
                 )
             )

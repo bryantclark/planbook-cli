@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from .. import api
-from ..cli_support import client_from, emit, teacher_id_from
+from ..cli_support import client_from, emit, teacher_id_from, year_id_from
 from ..endpoints import ENDPOINTS
 from ..errors import UsageError
 
@@ -14,8 +14,8 @@ def cmd_schedule_special_days(args: argparse.Namespace) -> None:
     emit(
         api.special_days(
             client_from(args),
-            teacher_id=args.teacher_id,
-            year_id=args.year_id,
+            teacher_id=teacher_id_from(args),
+            year_id=year_id_from(args),
             school_id=args.school_id,
         )
     )

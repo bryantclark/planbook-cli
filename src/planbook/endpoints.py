@@ -6,6 +6,8 @@
             exercised against a live account
   partial   the call works, the response shape is not fully decoded
   observed  seen in browser traffic, not yet wired up - reach it with `raw`
+  blocked   exists, but demands a parameter the server refuses to name;
+            needs a captured browser request before it can be mapped
   absent    probed and does not exist under this name
 
 Anything not listed may still exist. `planbook raw` will POST to any path,
@@ -24,7 +26,7 @@ ENDPOINTS = [
     ("/deleteLesson", "mapped", "Clear the lesson on one date"),
     ("/getLessonsEvents", "mapped", "Lessons and events by week, grouped by day"),
     ("/copyLesson", "absent", "Not a real path - answers with the SPA page"),
-    ("/bumpLesson", "observed", "Bump/shift lessons"),
+    ("/bumpLesson", "blocked", "Bump/shift lessons"),
     # Units
     ("/getUnits", "mapped", "Units"),
     ("/updateUnit", "mapped", "Add/update/delete a unit via action=A|U|D"),
@@ -39,15 +41,15 @@ ENDPOINTS = [
     ("/updateToDo", "mapped", "Add/update/delete a to-do via action=A|U|D"),
     (
         "/services/planbook/newNote/filterNotes",
-        "observed",
-        "Notes; filter args unmapped",
+        "blocked",
+        "Notes; wants an unnamed long (getLong returned null)",
     ),
     ("/addNote", "observed", "Create a note"),
     ("/updateNote", "observed", "Update a note"),
     # Other reads
     ("/getSettings", "partial", "Account and display settings"),
     ("/getStandards", "partial", "Standards available to the account"),
-    ("/getStandardsReport", "partial", "Standards coverage report"),
+    ("/getStandardsReport", "blocked", "Standards coverage; wants an unnamed int"),
     ("/getAssignments", "mapped", "Assignments"),
     ("/getAssessments", "mapped", "Assessments"),
     ("/getSchools", "mapped", "Schools"),
@@ -82,7 +84,7 @@ ENDPOINTS = [
     ("/addTemplate", "observed", "Create a lesson template"),
     ("/updateTemplate", "observed", "Update a lesson template"),
     ("/deleteTemplate", "observed", "Delete a lesson template"),
-    ("/extendLesson", "observed", "Extend a lesson; wants an unnamed Integer"),
+    ("/extendLesson", "blocked", "Extend a lesson; wants an unnamed Integer"),
     # Gated
     ("/services/api/stickers", "observed", "Stickers"),
     ("/services/api/referencedata/maintenanceData", "observed", "Reference data"),

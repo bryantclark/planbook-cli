@@ -299,13 +299,13 @@ def test_parse_day_times_whole_week_and_per_day():
     }
 
 
-def test_set_lesson_normalizes_times_and_marks_them_updated():
-    payload = api.lesson_payload(
-        class_id=1, date="09/01/2026", start_time="14:30", end_time="15:20"
-    )[0]
-    assert payload["customStart"] == "2:30 PM"
-    assert payload["customEnd"] == "3:20 PM"
-    assert "CUSTOMSTART" in payload["updatedFields"]
+def test_lesson_payload_never_sets_a_custom_time():
+    # The server ignores customStart/customEnd on /updateLesson - a lesson
+    # always keeps its class period's times - so the CLI does not offer them.
+    payload = api.lesson_payload(class_id=1, date="09/01/2026", title="T")[0]
+    assert payload["customStart"] == ""
+    assert payload["customEnd"] == ""
+    assert "CUSTOMSTART" not in payload["updatedFields"]
 
 
 def test_build_schedule_carries_per_day_times():
@@ -401,9 +401,9 @@ def test_update_class_keeps_earlier_schedule_rows_untouched():
     assert rows[1]["teachDay4"] is False
 
 
-def test_set_lesson_requires_both_times_together():
+def test_lesson_payload_rejects_a_write_that_names_nothing():
     with pytest.raises(UsageError):
-        api.lesson_payload(class_id=1, date="09/01/2026", start_time="9:00")
+        api.lesson_payload(class_id=1, date="09/01/2026")
 
 
 @responses.activate
@@ -653,10 +653,9 @@ def test_set_lesson_carries_over_text_it_was_not_asked_to_change():
 
 
 @responses.activate
-def test_set_lesson_carries_over_times_unit_and_flags():
-    # A saved lesson reports its times as startTime/endTime; the write side
-    # calls them customStart/customEnd. Reading the wrong name made the
-    # carry-over dead code and blanked custom times on any later edit.
+def test_set_lesson_carries_over_unit_sections_and_flags():
+    # A fresh payload resets these to their defaults, so an edit that names
+    # only the title used to silently drop the unit, the lock and section 4.
     responses.post(
         f"{API_BASE}/getLessonsEvents",
         json={
@@ -696,8 +695,6 @@ def test_set_lesson_carries_over_times_unit_and_flags():
         )
     )
     assert sent["lessonTitle"] == "Renamed"
-    assert sent["customStart"] == "9:05 AM"
-    assert sent["customEnd"] == "9:55 AM"
     assert sent["unitId"] == "42"
     assert sent["lessonLock"] == "Y"
     assert sent["tab4Text"] == "<p>objectives</p>"

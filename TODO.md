@@ -2,45 +2,50 @@
 
 Working list. Delete this file before the final push.
 
-## 1. Loop review to convergence
-- [ ] Second full K3 pass (the loop only converges on a *clean* full pass)
-- [ ] Comment-cleanup agent in parallel (required by loop mode)
-- [ ] Fix everything it finds; re-run gates
-- [ ] Repeat until a full pass is clean (max 5 passes, then hand back)
+## BLOCKED - needs one action from Bryant
+`planbook auth import` times out on an unanswered macOS Keychain prompt, so I
+cannot get a token. Run it in your own terminal and click **Always Allow**:
 
-## 2. Codex discoverability + test
-- [x] `integrations/codex-AGENTS.md` written
-- [x] Installed into `~/.codex/AGENTS.md`
-- [ ] Verify Codex actually reads it (check `codex` CLI is authed)
-- [ ] Fresh low-context Codex agent builds a week of plans, no CLI hint
-- [ ] Collect its process notes; fix what they expose
+    planbook auth import && planbook auth status
 
-## 3. Verification sweep
-- [ ] Every command exercised live against the account (not just --help)
-- [ ] `--dry-run` verified on every command that advertises it
-- [ ] Exit codes verified against the AGENTS.md table
-- [ ] Token never in argv/logs; re-check after all edits
-- [ ] Remove scratch data from the account
+Until then everything needing a live call is stalled. Offline work continues.
 
-## 4. Quality gates (must all pass at the end)
-- [ ] `pytest -q`
-- [ ] `mypy` (strict)
-- [ ] `ruff check src tests`
-- [ ] `ruff format --check src tests`
-- [ ] CI green on GitHub
+## 1. Loop review
+- [x] Full pass 1 (Claude) - fixed: updatedFields data loss, events delete
+      --dry-run deleting, cross-year date comparison, raw --json ignored,
+      bulk dry-run/validation gaps, self-asserting test
+- [x] Full pass 2 (codex/gpt-5.6) - fixed: customStart/startTime carry-over
+      blanking times, unitId/lessonLock/extraLesson reset on every edit,
+      missing events create --force, todo rollback, OSError exit code
+- [ ] Full pass 3 - must come back CLEAN for the loop to converge
+- [ ] Comment-cleanup agent (loop mode requires one per full pass)
+
+## 2. Codex test
+- [x] integrations/codex-AGENTS.md written and installed to ~/.codex/AGENTS.md
+- [x] codex CLI present (0.145.0) and authed
+- [ ] Fresh low-context codex agent builds a week of plans, no CLI hint
+- [ ] Fix what its process notes expose
+
+## 3. Live verification (BLOCKED on token)
+- [x] Offline dry-run sweep: all 11 pass
+- [x] Exit codes verified: 64 usage / 77 no-auth / 0 ok
+- [ ] Every one of the 49 commands exercised against the account
+- [ ] Remove scratch data afterwards
+
+## 4. Gates - all green as of 96b6e97
+- [x] pytest 75 passed
+- [x] mypy strict clean
+- [x] ruff check + format clean
+- [ ] CI green on GitHub (re-check after final push)
 
 ## 5. Docs truth pass
-- [ ] AGENTS.md matches actual `--help` output, command by command
-- [ ] SKILL.md matches
-- [ ] README install/auth instructions still correct
-- [ ] docs/API-NOTES.md conventions all still true
-- [ ] endpoints registry counts match reality
+- [x] AGENTS.md GET/JSON correction, read-before-write cost, command table
+- [x] README endpoint count destaled
+- [ ] Final pass: every subcommand --help vs AGENTS.md and SKILL.md, one by one
 
-## 6. Stretch (only if a capture becomes possible)
-- [ ] `filterNotes` - unnamed Long param
-- [ ] `bumpLesson` / `extendLesson` - unnamed Integer param
-- [ ] Attendance write path (none found under /attendance/*)
+## 6. Stretch - only with a captured request
+- [ ] filterNotes / bumpLesson / extendLesson: each wants an unnamed int param
+- [ ] Attendance write path: none exists under /services/planbook/attendance/*
 
 ## 7. Finish
-- [ ] Delete TODO.md
-- [ ] Final push, report
+- [ ] Delete TODO.md, final push, report

@@ -10,25 +10,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import requests
 
-from . import __version__, api, browser_cookies, config
-from .client import PlanbookClient
+from . import __version__, api, browser_cookies
 from .errors import PlanbookError, UsageError
-
-
-def emit(value: Any) -> None:
-    json.dump(value, sys.stdout, indent=2, default=str)
-    sys.stdout.write("\n")
-
-
-def client_from(args: argparse.Namespace) -> PlanbookClient:
-    return PlanbookClient(config.load_session(), verbose=args.verbose)
 
 
 class _Parser(argparse.ArgumentParser):
@@ -78,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_settings,
         cmd_simple_read,
         cmd_standards,
+    )
+    from .commands.people import (
+        cmd_attendance,
+        cmd_grades,
+        cmd_students_create,
+        cmd_students_delete,
+        cmd_students_list,
+        cmd_students_update,
+        cmd_templates,
     )
     from .commands.todos import (
         cmd_todos_create,
@@ -220,13 +218,13 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--dry-run", action="store_true")
     c.set_defaults(func=cmd_classes_update)
     c = s_cls.add_parser("delete", help="delete a class AND all of its lessons")
-    c.add_argument("class_id")
+    c.add_argument("--class-id", dest="class_id", required=True)
     c.add_argument(
         "--yes", action="store_true", help="required: confirms the lessons go too"
     )
     c.set_defaults(func=cmd_classes_delete)
     c = s_cls.add_parser("get", help="fetch one class by id")
-    c.add_argument("class_id")
+    c.add_argument("--class-id", dest="class_id", required=True)
     c.set_defaults(func=cmd_classes_get)
 
     p_les = sub.add_parser("lessons", help="read and write lessons")
@@ -241,13 +239,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub_lesson.add_argument("--homework")
     sub_lesson.add_argument("--notes")
     sub_lesson.add_argument("--unit-id", dest="unit_id")
-    sub_lesson.add_argument(
-        "--start-time",
-        dest="start_time",
-        metavar="TIME",
-        help="lesson start, e.g. 9:00am or 14:30",
-    )
-    sub_lesson.add_argument("--end-time", dest="end_time", metavar="TIME")
     sub_lesson.add_argument(
         "--attach",
         action="append",
@@ -292,7 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
         "file",
         help="JSON list of lesson objects; keys: "
         "class_id, date, title, text, homework, notes, "
-        "unit_id, start_time, end_time, sections",
+        "unit_id, sections",
     )
     sub_lesson.add_argument(
         "--class-id", dest="class_id", help="default class_id for items that omit one"
@@ -334,8 +325,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_sch = sub.add_parser("schedule", help="school calendar")
     s_sch = p_sch.add_subparsers(dest="schedule_command", required=True)
     s = s_sch.add_parser("special-days", help="holidays and non-teaching days")
-    s.add_argument("--teacher-id", dest="teacher_id", required=True)
-    s.add_argument("--year-id", dest="year_id", required=True)
+    s.add_argument("--teacher-id", dest="teacher_id", help="default: from the token")
+    s.add_argument("--year-id", dest="year_id", help="default: from the token")
     s.add_argument("--school-id", dest="school_id", default=0)
     s.set_defaults(func=cmd_schedule_special_days)
 
@@ -362,7 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
         t.add_argument("--repeats", default="daily")
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
-    t.add_argument("todo_id")
+    t.add_argument("--todo-id", dest="todo_id", required=True)
     t.set_defaults(func=cmd_todos_delete)
 
     p_un = sub.add_parser("units", help="list, create, update and delete units")
@@ -413,6 +404,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="mark as a no-school day",
     )
     e.add_argument(
+        "--force",
+        action="store_true",
+        help="with --no-school, delete the lessons that already exist on that date",
+    )
+    e.add_argument(
         "--repeats",
         default="daily",
         help="recurrence across the date range (default: daily)",
@@ -422,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     e = s_ev.add_parser(
         "delete", help="delete an event by id (the whole series by default)"
     )
-    e.add_argument("event_id")
+    e.add_argument("--event-id", dest="event_id", required=True)
     e.add_argument(
         "--occurrence-only",
         dest="occurrence_only",
@@ -432,8 +428,45 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--dry-run", action="store_true")
     e.set_defaults(func=cmd_events_delete)
 
+    p_st = sub.add_parser("students", help="list, create, update and delete students")
+    s_st = p_st.add_subparsers(dest="students_command", required=True)
+    st = s_st.add_parser("list", help="students in a class, or all of them")
+    st.add_argument(
+        "--class-id", dest="class_id", help="omit for every student on the account"
+    )
+    st.set_defaults(func=cmd_students_list)
+    for verb, fn in (("create", cmd_students_create), ("update", cmd_students_update)):
+        st = s_st.add_parser(verb, help=f"{verb} a student")
+        if verb == "update":
+            st.add_argument("--student-id", dest="student_id", required=True)
+        st.add_argument("--first-name", dest="first_name", required=True)
+        st.add_argument("--last-name", dest="last_name", required=True)
+        st.add_argument("--middle-name", dest="middle_name")
+        st.add_argument("--code", help="student id/code used by the school")
+        st.add_argument("--email")
+        st.add_argument("--parent-email", dest="parent_email")
+        st.add_argument("--phone")
+        st.add_argument("--birthdate", metavar="MM/DD/YYYY")
+        st.set_defaults(func=fn)
+    st = s_st.add_parser("delete", help="delete a student")
+    st.add_argument("--student-id", dest="student_id", required=True)
+    st.set_defaults(func=cmd_students_delete)
+
+    p = sub.add_parser("attendance", help="read attendance for a class on a date")
+    p.add_argument("--class-id", dest="class_id", required=True)
+    p.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    p.set_defaults(func=cmd_attendance)
+
+    p = sub.add_parser("grades", help="grade periods and scored assignments")
+    p.add_argument("--class-id", dest="class_id", required=True)
+    p.set_defaults(func=cmd_grades)
+
+    p = sub.add_parser("templates", help="lesson templates")
+    p.add_argument("--teacher-id", dest="teacher_id")
+    p.set_defaults(func=cmd_templates)
+
     for name, (path, _unwrap) in api.SIMPLE_READS.items():
-        if name in ("events", "units", "todos"):
+        if name in ("events", "units", "todos", "students"):
             continue
         rp = sub.add_parser(name, help=f"read {name.replace('-', ' ')} ({path})")
         rp.add_argument(
@@ -471,6 +504,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="KEY=VALUE",
         help="form field; repeatable",
     )
+    p.add_argument(
+        "--get",
+        action="store_true",
+        help="send as GET; some /services/planbook/** endpoints are GET-only "
+        "and answer a POST with 405",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="send fields as a JSON body; a few service endpoints reject form "
+        "encoding with \"A JSONObject text must begin with '{'\"",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_raw)
 
@@ -490,6 +535,9 @@ def main(argv: list[str] | None = None) -> int:
         # 64 for bad arguments, not a traceback.
         print(f"error: invalid argument: {exc}", file=sys.stderr)
         return UsageError.exit_code
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return PlanbookError.exit_code
     except requests.RequestException as exc:
         print(f"error: could not reach Planbook: {exc}", file=sys.stderr)
         return PlanbookError.exit_code

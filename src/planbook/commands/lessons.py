@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from .. import api
-from ..cli import client_from, emit
+from ..cli_support import client_from, emit, teacher_id_from
 from ..client import PlanbookClient
 from ..errors import PlanbookError, UsageError
-from .misc import _teacher_id
 
 
 def _sections_from(
@@ -52,7 +51,7 @@ def _attachments_from(
     if client is None:
         raise UsageError("--attach needs a network connection; drop --dry-run.")
     return [
-        api.resolve_attachment(client, ref, teacher_id=_teacher_id(args))
+        api.resolve_attachment(client, ref, teacher_id=teacher_id_from(args))
         for ref in args.attach
     ]
 
@@ -69,8 +68,6 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             homework=args.homework,
             notes=args.notes,
             unit_id=args.unit_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
             sections=_sections_from(args, None),
             standards=args.standard or None,
             assignments=args.assignment or None,
@@ -98,8 +95,6 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             homework=args.homework,
             notes=args.notes,
             unit_id=args.unit_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
             sections=_sections_from(args, client),
             standards=args.standard if args.standard else None,
             assignments=args.assignment if args.assignment else None,
@@ -131,8 +126,6 @@ BULK_KEYS = {
     "homework",
     "notes",
     "unit_id",
-    "start_time",
-    "end_time",
     "sections",
 }
 
@@ -182,6 +175,18 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
         _require_class_id(item, args, index)
+        # Build every payload up front. It is pure, and it is where value
+        # errors live (an unknown section, a bad standard id),
+        # which SKILL.md promises cannot half-apply a week.
+        api.lesson_payload(
+            class_id=_require_class_id(item, args, index),
+            date=item["date"],
+            title=item.get("title"),
+            text=item.get("text"),
+            homework=item.get("homework"),
+            notes=item.get("notes"),
+            unit_id=item.get("unit_id"),
+        )
 
     if args.dry_run:
         emit(
@@ -197,8 +202,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                         homework=item.get("homework"),
                         notes=item.get("notes"),
                         unit_id=item.get("unit_id"),
-                        start_time=item.get("start_time"),
-                        end_time=item.get("end_time"),
+                        sections=_bulk_sections(item, args, index),
                     )[0],
                 }
                 for index, item in enumerate(items)
@@ -227,8 +231,6 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                     homework=item.get("homework"),
                     notes=item.get("notes"),
                     unit_id=item.get("unit_id"),
-                    start_time=item.get("start_time"),
-                    end_time=item.get("end_time"),
                     sections=_bulk_sections(item, args, index),
                 )
             )

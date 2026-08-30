@@ -24,13 +24,16 @@ def session_path() -> Path:
 
 def save_session(token: str, username: str | None = None) -> Path:
     d = config_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = session_path()
     payload = {"token": token, "username": username}
     # Written 0600: this token is a bearer credential for the whole account.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
         json.dump(payload, fh)
+    # O_CREAT's mode applies only on creation; an existing looser file keeps
+    # its permissions without this.
+    path.chmod(0o600)
     return path
 
 

@@ -203,12 +203,6 @@ def test_unit_payload_sends_class_id_as_subject_id():
     assert payload["action"] == "A"
 
 
-def test_delete_lesson_payload():
-    payload = {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
-    assert payload == {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
-
-
-@responses.activate
 def test_set_lesson_dry_run_builds_payload_without_network():
     result = api.lesson_payload(
         class_id=123,
@@ -305,13 +299,13 @@ def test_parse_day_times_whole_week_and_per_day():
     }
 
 
-def test_set_lesson_normalizes_times_and_marks_them_updated():
-    payload = api.lesson_payload(
-        class_id=1, date="09/01/2026", start_time="14:30", end_time="15:20"
-    )[0]
-    assert payload["customStart"] == "2:30 PM"
-    assert payload["customEnd"] == "3:20 PM"
-    assert "CUSTOMSTART" in payload["updatedFields"]
+def test_lesson_payload_never_sets_a_custom_time():
+    # The server ignores customStart/customEnd on /updateLesson - a lesson
+    # always keeps its class period's times - so the CLI does not offer them.
+    payload = api.lesson_payload(class_id=1, date="09/01/2026", title="T")[0]
+    assert payload["customStart"] == ""
+    assert payload["customEnd"] == ""
+    assert "CUSTOMSTART" not in payload["updatedFields"]
 
 
 def test_build_schedule_carries_per_day_times():
@@ -407,9 +401,9 @@ def test_update_class_keeps_earlier_schedule_rows_untouched():
     assert rows[1]["teachDay4"] is False
 
 
-def test_set_lesson_requires_both_times_together():
+def test_lesson_payload_rejects_a_write_that_names_nothing():
     with pytest.raises(UsageError):
-        api.lesson_payload(class_id=1, date="09/01/2026", start_time="9:00")
+        api.lesson_payload(class_id=1, date="09/01/2026")
 
 
 @responses.activate
@@ -544,3 +538,163 @@ def test_read_week_dates_come_from_the_day_not_the_lesson():
     week = api.read_week(PlanbookClient("t.t.t"), monday="09/07/2026")
     assert week[0]["date"] == "09/07/2026"
     assert [x["class_name"] for x in week[0]["lessons"]] == ["Math"]
+
+
+def test_student_payload_omits_id_when_creating():
+    payload = api.student_payload(first_name="Ada", last_name="Lovelace")
+    assert "studentId" not in payload
+    assert payload["studentFirstName"] == "Ada"
+    assert payload["userMode"] == "T"
+
+
+def test_student_payload_includes_id_when_updating():
+    payload = api.student_payload(first_name="Ada", last_name="Lovelace", student_id=7)
+    assert payload["studentId"] == "7"
+
+
+@responses.activate
+def test_list_students_normalizes_both_shapes():
+    # Account-wide returns {id: "Last, First"}; per-class returns records.
+    responses.post(
+        f"{API_BASE}/services/planbook/student/getAllFromSchool",
+        json={"2139917": "Lovelace, Ada"},
+    )
+    everyone = api.list_students(PlanbookClient("t.t.t"))
+    assert everyone == [
+        {"id": 2139917, "name": "Lovelace, Ada", "last_name": "Lovelace"}
+    ]
+
+    responses.post(
+        f"{API_BASE}/getStudentsServlet",
+        json={"students": [{"studentId": 1, "firstName": "Ada", "lastName": "L"}]},
+    )
+    in_class = api.list_students(PlanbookClient("t.t.t"), class_id=5)
+    assert in_class[0]["first_name"] == "Ada"
+
+
+@responses.activate
+def test_list_students_rejects_a_shape_it_does_not_recognise():
+    responses.post(f"{API_BASE}/getStudentsServlet", json={"nope": []})
+    with pytest.raises(SchemaDrift):
+        api.list_students(PlanbookClient("t.t.t"), class_id=5)
+
+
+@responses.activate
+def test_lessons_between_spans_a_year_boundary():
+    # MM/DD/YYYY compared as strings inverts across New Year, which silently
+    # disarmed the no-school guard for exactly the events that span one.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "12/22/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [{"classId": 1, "className": "Math", "lessonId": 5}],
+                },
+                {
+                    "date": "01/05/2027",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [{"classId": 1, "className": "Math", "lessonId": 6}],
+                },
+            ]
+        },
+    )
+    found = api.lessons_between(
+        PlanbookClient("t.t.t"), start="12/22/2026", end="01/05/2027"
+    )
+    assert len(found) == 2
+
+
+@responses.activate
+def test_delete_lesson_posts_the_right_body():
+    responses.post(f"{API_BASE}/deleteLesson", json={"ok": True})
+    api.delete_lesson(PlanbookClient("t.t.t"), class_id=7, date="09/01/2026")
+    sent = dict(urllib.parse.parse_qsl(responses.calls[0].request.body))
+    assert sent == {"classId": "7", "customDate": "09/01/2026", "userMode": "T"}
+
+
+@responses.activate
+def test_set_lesson_carries_over_text_it_was_not_asked_to_change():
+    # updatedFields is NOT a mask: a field sent empty is written empty, so a
+    # standards-only write used to wipe the title, body and homework.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/01/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 9,
+                            "lessonTitle": "Keep me",
+                            "lessonText": "<p>body</p>",
+                            "homeworkText": "hw",
+                            "notesText": "notes",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    api.set_lesson(
+        PlanbookClient("t.t.t"), class_id=1, date="09/01/2026", standards=["118071"]
+    )
+    write = [c for c in responses.calls if c.request.url.endswith("/updateLesson")][-1]
+    sent = dict(urllib.parse.parse_qsl(write.request.body))
+    assert sent["lessonTitle"] == "Keep me"
+    assert sent["lessonText"] == "<p>body</p>"
+    assert sent["homeworkText"] == "hw"
+    assert sent["notesText"] == "notes"
+
+
+@responses.activate
+def test_set_lesson_carries_over_unit_sections_and_flags():
+    # A fresh payload resets these to their defaults, so an edit that names
+    # only the title used to silently drop the unit, the lock and section 4.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/01/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 9,
+                            "lessonTitle": "Keep",
+                            "lessonText": "<p>b</p>",
+                            "startTime": "9:05 AM",
+                            "endTime": "9:55 AM",
+                            "unitId": 42,
+                            "lessonLock": "Y",
+                            "extraLesson": 0,
+                            "linkedLessonId": 0,
+                            "tab4Text": "<p>objectives</p>",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    api.set_lesson(
+        PlanbookClient("t.t.t"), class_id=1, date="09/01/2026", title="Renamed"
+    )
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [c for c in responses.calls if c.request.url.endswith("/updateLesson")][
+                -1
+            ].request.body
+        )
+    )
+    assert sent["lessonTitle"] == "Renamed"
+    assert sent["unitId"] == "42"
+    assert sent["lessonLock"] == "Y"
+    assert sent["tab4Text"] == "<p>objectives</p>"

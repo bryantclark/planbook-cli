@@ -115,10 +115,3 @@ def delete_unit(
     payload = unit_payload(action="D", class_id=class_id, unit_id=unit_id)
     client.post("/updateUnit", payload)
     return {"ok": True, "deleted_unit_id": payload["unitId"]}
-
-
-# ---------------------------------------------------------------------------
-# To-dos
-#
-# Creating one takes two calls, as the web app does: action "A" mints an empty
-# row and returns its id, then "U" fills it in. There is no single-shot create.

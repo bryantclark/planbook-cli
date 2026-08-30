@@ -10,6 +10,8 @@ consent boundary, and "Always Allow" makes later runs silent.
 
 from __future__ import annotations
 
+import contextlib
+import signal
 from collections.abc import Iterator
 from typing import Any
 
@@ -32,14 +34,43 @@ def _import_bc() -> Any:
     return browser_cookie3
 
 
-def tokens_from(browser: str) -> list[str]:
+class CookieTimeout(Exception):
+    """Reading a browser's cookie store took too long."""
+
+
+@contextlib.contextmanager
+def _time_limit(seconds: int) -> Iterator[None]:
+    """Bound a blocking read.
+
+    macOS gates the cookie store behind the Keychain, and an unanswered
+    prompt blocks forever. Without this the command simply hangs with no
+    output and no explanation.
+    """
+    if not hasattr(signal, "SIGALRM"):  # pragma: no cover - non-POSIX
+        yield
+        return
+
+    def _raise(_signum: int, _frame: object) -> None:
+        raise CookieTimeout
+
+    previous = signal.signal(signal.SIGALRM, _raise)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def tokens_from(browser: str, *, timeout: int = 10) -> list[str]:
     """Return any Planbook access tokens found in one browser's cookie store."""
     bc = _import_bc()
     loader = getattr(bc, browser, None)
     if loader is None:
         raise LoginFailed(f"Unknown browser {browser!r}.")
-    jar = loader(domain_name="planbook.com")
-    return [c.value for c in jar if c.name.endswith(TOKEN_SUFFIX) and c.value]
+    with _time_limit(timeout):
+        jar = loader(domain_name="planbook.com")
+        return [c.value for c in jar if c.name.endswith(TOKEN_SUFFIX) and c.value]
 
 
 def search(preferred: str | None = None) -> Iterator[tuple[str, str]]:
@@ -68,7 +99,9 @@ def diagnose() -> dict[str, str]:
             report[browser] = f"{len(found)} token(s)" if found else "no Planbook token"
         except Exception as exc:
             message = str(exc)
-            if "key for cookie decryption" in message.lower():
+            if isinstance(exc, CookieTimeout):
+                report[browser] = "timed out (unanswered Keychain prompt?)"
+            elif "key for cookie decryption" in message.lower():
                 report[browser] = "locked (Keychain access denied)"
             elif (
                 "not installed" in message.lower()

@@ -45,12 +45,16 @@ Run `planbook <group> --help` for exact flags. Groups:
 |---|---|
 | `auth` | `status`, `import`, `token`, `browser`, `logout` |
 | `classes` | `list`, `get`, `create`, `update`, `delete` |
-| `lessons` | `set`, `bulk`, `delete`, `week` |
+| `lessons` | `set`, `bulk`, `get`, `delete`, `week`, `sections` |
 | `units` | `list`, `create`, `update`, `delete` |
 | `events` | `list`, `create`, `delete` |
 | `todos` | `list`, `create`, `update`, `delete` |
-| reads | `assignments`, `assessments`, `schools`, `templates`, `notes`, `students`, `standards`, `standards-report`, `comments`, `attachments`, `settings`, `schedule special-days` |
-| `raw` | POST to any endpoint |
+| reads | `assignments`, `assessments`, `schools`, `templates`, `students`, `standards`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| `students` | `list`, `create`, `update`, `delete` |
+| `attendance` | read attendance for a class on a date (read-only) |
+| `grades` | grade periods and scored assignments |
+| `templates` | lesson templates |
+| `raw` | POST to any endpoint; `--get` for GET-only paths, `--json` for JSON bodies |
 | `endpoints` | what is mapped and what is not |
 
 ### Authentication
@@ -108,7 +112,6 @@ output as raw, and do not build logic on its internals.
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" \
   --text "<p>Chloroplasts and the light reactions.</p>" \
-  [--start-time 14:30] [--end-time 15:20] \
   [--homework "Read ch. 4"] [--notes "Lab groups of 3"] [--dry-run]
 ```
 
@@ -136,8 +139,9 @@ Each of those **replaces** what was attached, so pass the full set you want. Sta
 use the numeric `db_id`, not the human id. An assignment belongs to one class.
 `--attach` uploads a local path or links an existing resource by name.
 
-Lesson times override the class's usual schedule for that day. Bulk items accept
-`start_time` and `end_time` too.
+A lesson always shows its class period's times. `/updateLesson` accepts
+`customStart` and `customEnd` and then ignores them, so there is no per-lesson
+time override to set. Change the class schedule instead. Events do store times.
 
 Class schedule times:
 
@@ -149,7 +153,12 @@ planbook classes create --name "Biology 1" --start 08/31/2026 --end 06/06/2027 \
 planbook classes create ... --days MTWRF --time 9:00-9:50
 ```
 
-**`lessons set` is an upsert keyed on class + date.** Writing the same date twice
+**`lessons set` is an upsert keyed on class + date**, and a true partial update:
+it reads the lesson first and carries over anything you do not name. That read is
+not optional - the server writes empty any text field it receives empty, so a
+standards-only write would otherwise blank the lesson. It costs one extra request
+per write, so a bulk file makes roughly two requests per lesson (more on a new
+date that also attaches standards or files). Writing the same date twice
 edits the existing lesson in place; it does not create a duplicate. This makes it
 safe to re-run, and it is the main reason to use this tool over Planbook's CSV
 import, which is append-only.
@@ -208,7 +217,10 @@ These come from the server's own behaviour, not from style preference:
 - **Integer fields must be `0` when absent, never `""`.** An empty string triggers a
   server-side Java `NullPointerException` returned as a 200. Again, `raw` does not
   handle this for you.
-- **Every call is POST**, form-encoded. There are no GET endpoints and no JSON bodies.
+- **Most calls are form-encoded POST**, but not all: a few `/services/planbook/**`
+  endpoints are GET-only and answer a POST with `405`, and a couple want a JSON
+  body. `raw --get` and `raw --json` cover both. A 405 in an error message means
+  "use `--get`".
 - **Failure arrives as HTTP 200** with `{"error":"true","msg":"..."}`. This tool
   detects that and exits non-zero, so you can trust the exit code.
 
@@ -223,10 +235,10 @@ These come from the server's own behaviour, not from style preference:
 
 These delete data with no undo. Confirm with the user before running them.
 
-- `classes delete <id> --yes` - removes the class **and every lesson in it**. The
+- `classes delete --class-id N --yes` - removes the class **and every lesson in it**. The
   `--yes` flag is required.
 - `lessons delete --class-id N --date D` - clears one lesson.
-- `events delete <id>` - removes the **whole repeating series** by default; pass
+- `events delete --event-id N` - removes the **whole repeating series** by default; pass
   `--occurrence-only` for just that date.
 - `units delete`, `todos delete` - remove one record.
 

@@ -11,10 +11,11 @@ session. See [docs/API-NOTES.md](docs/API-NOTES.md) for exactly how, and
 
 ## Status
 
-Honest scope: this is not "all of Planbook". Four endpoints are fully mapped
-(classes, class creation, lesson upsert, special days), three are partially mapped,
-and about ten more have been observed but not wrapped in commands. Run
-`planbook endpoints` for the current list.
+Honest scope: this is not all of Planbook. Run `planbook endpoints` for the
+current count of mapped / partial / observed endpoints. Classes, lessons, units,
+events, to-dos, students, standards, assignments and attachments are mapped and
+exercised against a live account; attendance is read-only; notes and a couple of
+lesson-move endpoints are reachable only through `raw`.
 
 Anything unmapped is still reachable through `planbook raw`, which POSTs to any path.
 

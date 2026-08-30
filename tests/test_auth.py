@@ -37,3 +37,31 @@ def test_login_mentions_sso_when_no_candidate_session_cookie_works():
 
     with pytest.raises(LoginFailed, match="SSO"):
         auth.login("teacher@example.com", "bad-password")
+
+
+def test_cookie_read_is_time_bounded(monkeypatch):
+    # An unanswered macOS Keychain prompt blocks forever; the command must
+    # give up and say why rather than hang with no output.
+    import planbook.browser_cookies as bc
+
+    class _Slow:
+        def brave(self, **_kw: object) -> object:
+            import time
+
+            time.sleep(5)
+            return []
+
+    monkeypatch.setattr(bc, "_import_bc", lambda: _Slow())
+    with pytest.raises(bc.CookieTimeout):
+        bc.tokens_from("brave", timeout=1)
+
+
+def test_diagnose_names_a_timeout(monkeypatch):
+    import planbook.browser_cookies as bc
+
+    def _boom(browser: str, **_kw: object) -> list[str]:
+        raise bc.CookieTimeout
+
+    monkeypatch.setattr(bc, "tokens_from", _boom)
+    report = bc.diagnose()
+    assert all("timed out" in v for v in report.values())

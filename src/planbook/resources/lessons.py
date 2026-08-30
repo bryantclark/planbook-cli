@@ -10,7 +10,7 @@ from typing import Any
 
 from ..client import PlanbookClient
 from ..errors import SchemaDrift, UsageError
-from ..wire import Payload, intish, parse_time, yn
+from ..wire import Payload, intish, yn
 from .misc import list_assignments, settings
 
 
@@ -127,6 +127,18 @@ def find_lesson(
     return None
 
 
+def _yn_of(value: Any) -> str:
+    """Normalise a flag that may arrive as a bool or as "Y"/"N"."""
+    if isinstance(value, bool):
+        return yn(value)
+    return yn(str(value).upper() == "Y")
+
+
+def _html(value: Any) -> str:
+    """Text fields come back as strings or None; normalise for re-sending."""
+    return "" if value is None else str(value)
+
+
 def lesson_payload(
     *,
     class_id: int | str,
@@ -136,8 +148,6 @@ def lesson_payload(
     homework: str | None = None,
     notes: str | None = None,
     unit_id: Any = None,
-    start_time: str | None = None,
-    end_time: str | None = None,
     sections: dict[int, str] | None = None,
     standards: list[str] | None = None,
     assignments: list[Any] | None = None,
@@ -157,13 +167,6 @@ def lesson_payload(
         updated.append("HOMEWORKTEXT")
     if notes is not None:
         updated.append("NOTESTEXT")
-    if (start_time is None) != (end_time is None):
-        raise UsageError(
-            "Pass --start-time and --end-time together. The server stores them "
-            "as a pair, so sending one alone clears the other."
-        )
-    if start_time is not None:
-        updated.extend(["CUSTOMSTART", "CUSTOMEND"])
     section_text = dict(sections or {})
     for index in section_text:
         updated.append(SECTION_FIELDS[index].upper())
@@ -176,7 +179,7 @@ def lesson_payload(
     if not updated:
         raise UsageError(
             "Nothing to write. Pass at least one of --title, --text, "
-            "--homework, --notes, --start-time, --end-time."
+            "--homework, --notes, --section, --standard, --assignment, --attach."
         )
 
     payload: dict[str, Any] = {
@@ -194,8 +197,10 @@ def lesson_payload(
         "tab5Text": section_text.get(5, ""),
         "tab6Text": section_text.get(6, ""),
         "addClassDaysCode": "",
-        "customStart": parse_time(start_time),
-        "customEnd": parse_time(end_time),
+        # Sent because the server rejects the form without them; a lesson
+        # always keeps its class period's times. See docs/API-NOTES.md.
+        "customStart": "",
+        "customEnd": "",
         "lessonLock": yn(False),
         "isEditingALinkedLesson": yn(False),
         "strategySent": yn(True),
@@ -243,8 +248,6 @@ def set_lesson(
     homework: str | None = None,
     notes: str | None = None,
     unit_id: Any = None,
-    start_time: str | None = None,
-    end_time: str | None = None,
     sections: dict[int, str] | None = None,
     standards: list[str] | None = None,
     assignments: list[Any] | None = None,
@@ -255,6 +258,36 @@ def set_lesson(
     `/updateLesson` is keyed by class and date rather than lesson id, so this
     is an upsert: writing the same date twice edits in place.
     """
+    # The server does NOT honour updatedFields as a mask: any text field sent
+    # empty is written empty. Verified by losing a title, body and homework to
+    # a call that only attached a standard. So every write is
+    # read-modify-write, and anything the caller did not name is carried over.
+    existing = find_lesson(client, class_id=class_id, date=date)
+    carry: dict[str, Any] = {}
+    if existing:
+        title = title if title is not None else _html(existing.get("lessonTitle"))
+        text = text if text is not None else _html(existing.get("lessonText"))
+        homework = (
+            homework if homework is not None else _html(existing.get("homeworkText"))
+        )
+        notes = notes if notes is not None else _html(existing.get("notesText"))
+        if unit_id is None:
+            unit_id = existing.get("unitId")
+        carried = {
+            index: _html(existing.get(field))
+            for index, field in SECTION_FIELDS.items()
+            if index >= 4 and existing.get(field)
+        }
+        if carried:
+            sections = {**carried, **(sections or {})}
+        # Flags the payload would otherwise reset to their defaults.
+        carry = {
+            "lessonLock": _yn_of(existing.get("lessonLock")),
+            "extraLesson": intish(existing.get("extraLesson")),
+            "linkedLessonId": intish(existing.get("linkedLessonId")),
+            "isEditingALinkedLesson": _yn_of(existing.get("isEditingALinkedLesson")),
+        }
+
     payload, updated = lesson_payload(
         class_id=class_id,
         date=date,
@@ -263,13 +296,14 @@ def set_lesson(
         homework=homework,
         notes=notes,
         unit_id=unit_id,
-        start_time=start_time,
-        end_time=end_time,
         sections=sections,
         standards=standards,
         assignments=assignments,
         attach=attach,
     )
+    # Flags the fresh payload would otherwise reset on an existing lesson.
+    payload.update(carry)
+
     if assignments:
         # Assignments belong to a class. Attaching one from a different class
         # is accepted and silently does nothing.
@@ -385,10 +419,17 @@ def lessons_between(
     """Saved lessons falling on or between two dates."""
     weeks = 1
     with contextlib.suppress(ValueError):
-        weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 1)
+        weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 2)
     found = []
     for day in read_week(client, monday=start, weeks=weeks):
-        if start <= day["date"] <= end or day["date"] == start:
+        # Compare dates, not MM/DD/YYYY strings: lexically "01/05/2027" sorts
+        # before "12/22/2026", so a winter-break range matched nothing and the
+        # no-school guard reported zero lessons at risk.
+        try:
+            in_range = _as_date(start) <= _as_date(day["date"]) <= _as_date(end)
+        except ValueError:
+            in_range = day["date"] == start
+        if in_range:
             found.extend(day["lessons"])
     return found
 

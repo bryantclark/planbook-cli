@@ -76,6 +76,34 @@ class PlanbookClient:
         resp = self.http.post(url, data=payload, timeout=self.timeout)
         return self._check(resp, url)
 
+    def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """GET a service endpoint.
+
+        Part of the API answers only to GET - `/services/planbook/attendance/*`
+        among them - and replies to a POST with
+        `{"error":"true","message":"HTTP 405 Method Not Allowed"}`.
+        """
+        url = f"{API_BASE}/{path.lstrip('/')}"
+        query = {k: v for k, v in (params or {}).items() if v is not None}
+        if self.verbose:
+            keys = ",".join(sorted(query)) or "-"
+            print(f"GET {url} [{keys}]", file=sys.stderr)
+        resp = self.http.get(url, params=query, timeout=self.timeout)
+        return self._check(resp, url)
+
+    def post_json(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        """POST a JSON body.
+
+        A third request style: most of the API is form-encoded, but a few
+        service endpoints reject that with `A JSONObject text must begin
+        with '{'`.
+        """
+        url = f"{API_BASE}/{path.lstrip('/')}"
+        if self.verbose:
+            print(f"POST {url} [json]", file=sys.stderr)
+        resp = self.http.post(url, json=body or {}, timeout=self.timeout)
+        return self._check(resp, url)
+
     def upload(self, path: str, file_path: str) -> Any:
         """POST a file as multipart. `/uploadAttachment` is the only such endpoint."""
         url = f"{API_BASE}/{path.lstrip('/')}"
@@ -120,8 +148,11 @@ class PlanbookClient:
                     "(they last about 22 hours)." + SIGN_IN_HELP
                 )
             if str(body.get("error", "")).lower() == "true":
+                detail = body.get("msg") or body.get("message")
+                if detail and "405" in str(detail):
+                    detail = f"{detail} - GET-only endpoint; try `raw --get`"
                 raise ApiError(
-                    body.get("msg") or f"{url} reported an unspecified error"
+                    f"{url}: {detail}" if detail else f"{url} reported an error"
                 )
         return body
 

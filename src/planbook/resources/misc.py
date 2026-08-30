@@ -69,12 +69,13 @@ SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
     "schools": ("/getSchools", "schools"),
-    "templates": ("/services/planbook/template/get", "templates"),
-    "notes": ("/services/planbook/newNote/filterNotes", None),
     "students": ("/services/planbook/student/getAllFromSchool", None),
-    "standards-report": ("/getStandardsReport", None),
     "comments": ("/getCommentsTo", None),
 }
+# /getStandardsReport and /services/planbook/newNote/filterNotes are not here
+# on purpose: each demands an integer parameter the server will not name, and
+# every spelling tried comes back with the same null-parse. Reachable through
+# `planbook raw` once a real request has been captured. See docs/API-NOTES.md.
 
 
 def simple_read(
@@ -156,11 +157,3 @@ def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
             "withAllFolders": "true",
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# Events
-#
-# Update and delete want the *whole* event echoed back, not just its id, so
-# mutations look the record up first: the server treats missing fields as
-# cleared, and a skeleton delete removes the wrong occurrence of a repeat.

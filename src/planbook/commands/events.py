@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from .. import api
-from ..cli import client_from, emit
+from ..cli_support import client_from, emit
 
 
 def cmd_events_list(args: argparse.Namespace) -> None:
@@ -55,11 +55,29 @@ def cmd_events_create(args: argparse.Namespace) -> None:
             private=args.private,
             no_school=args.no_school,
             repeats=args.repeats,
+            force=args.force,
         )
     )
 
 
 def cmd_events_delete(args: argparse.Namespace) -> None:
+    if args.dry_run:
+        # Without this the flag silently performed the delete it was meant to
+        # preview - on a repeating event, the whole series.
+        event = api.find_event(client_from(args), args.event_id)
+        emit(
+            {
+                "dry_run": True,
+                "endpoint": "/deleteEvent",
+                "scope": "occurrence" if args.occurrence_only else "series",
+                "event": {
+                    "eventId": event.get("eventId"),
+                    "eventTitle": event.get("eventTitle"),
+                    "eventDate": event.get("eventDate"),
+                },
+            }
+        )
+        return
     emit(
         api.delete_event(
             client_from(args),

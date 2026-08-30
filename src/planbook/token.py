@@ -6,6 +6,11 @@ accepts it as `Authorization: Bearer`, which is what this CLI sends.
 
 The payload carries account id, year id, email and expiry, so `auth status`
 and expiry warnings cost no request.
+
+Two issuers are in circulation and they nest identity differently. The older
+one double-encodes: `sub` is itself a JSON string. The auth server
+(`auth.planbook.com`) instead uses a namespaced claim, and spells the year
+`yearid`. `identity()` flattens both, so nothing downstream has to care.
 """
 
 from __future__ import annotations
@@ -60,20 +65,42 @@ def claims(token: str) -> dict[str, Any]:
     return payload
 
 
+NAMESPACE = "https://planbook.com/claims"
+
+
+def identity(token: str) -> dict[str, Any]:
+    """The identity claims, whichever of the two shapes the issuer used.
+
+    Returns the raw sub-object; read it with `_first` so that `yearId` and
+    `yearid` both resolve.
+    """
+    data = claims(token)
+    for candidate in (data.get(NAMESPACE), data.get("sub")):
+        if isinstance(candidate, dict):
+            return candidate
+    return {}
+
+
+def _first(source: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        value = source.get(name)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def describe(token: str) -> dict[str, Any]:
     """Who the token is for and how long it lasts."""
     data = claims(token)
-    sub = data.get("sub")
-    if not isinstance(sub, dict):
-        sub = {}
+    sub = identity(token)
     expires_at = data.get("exp")
     remaining = None
     if isinstance(expires_at, (int, float)):
         remaining = max(0, int(expires_at - time.time()))
     return {
-        "account_id": sub.get("id"),
-        "email": sub.get("email"),
-        "year_id": sub.get("yearId"),
+        "account_id": _first(sub, "id"),
+        "email": _first(sub, "email", "user"),
+        "year_id": _first(sub, "yearId", "yearid"),
         "expires_at": expires_at,
         "expires_in_seconds": remaining,
         "expires_in_hours": round(remaining / 3600, 1)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from .. import api
-from ..cli import client_from, emit
+from ..cli_support import client_from, emit
 from ..errors import UsageError
 
 

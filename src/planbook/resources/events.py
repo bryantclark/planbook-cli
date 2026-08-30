@@ -153,8 +153,26 @@ def create_event(
         no_school=no_school,
         repeats=repeats,
     )
+
+    # /addEvent does not report the id it created, so diff the list around the
+    # write to hand back a reference the caller can delete or update.
+    def event_ids(records: Any) -> list[dict[str, Any]]:
+        return [r for r in records or [] if isinstance(r, dict)]
+
+    end = end_date or date
+    before = {
+        str(e.get("eventId") or e.get("id"))
+        for e in event_ids(list_events(client, start=date, end=end))
+    }
     client.post("/addEvent", payload)
-    return {"ok": True, "title": title, "date": date}
+    created = [
+        e
+        for e in event_ids(list_events(client, start=date, end=end))
+        if str(e.get("eventId") or e.get("id")) not in before
+    ]
+    result: dict[str, Any] = {"ok": True, "title": title, "date": date}
+    result["event_id"] = created[0].get("eventId") if len(created) == 1 else None
+    return result
 
 
 def find_event(client: PlanbookClient, event_id: Any) -> dict[str, Any]:

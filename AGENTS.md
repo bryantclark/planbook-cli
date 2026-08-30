@@ -228,6 +228,26 @@ These come from the server's own behaviour, not from style preference:
 - **Failure arrives as HTTP 200** with `{"error":"true","msg":"..."}`. This tool
   detects that and exits non-zero, so you can trust the exit code.
 
+## Chaining create into update or delete
+
+Every `create` returns the new record's id, so you can act on it without a
+second lookup:
+
+| create | id key it returns | feed to |
+|---|---|---|
+| `classes create` | `class_id` | `classes update/delete --class-id` |
+| `lessons set` | keyed by class+date, no id needed | `lessons set` again (upsert) |
+| `units create` | `unit_id` | `units update/delete --unit-id` |
+| `events create` | `event_id` | `events delete --event-id` |
+| `students create` | `student_id` | `students update/delete --student-id` |
+| `todos create` | `todo_id` | `todos update/delete --todo-id` |
+
+The id is `null` only when a concurrent create made it ambiguous; fall back to
+the matching `list` then. Note the `list` commands that are **not** normalised
+still use the wire spelling: `todos list` gives `toDoId`, `events list` gives
+`eventId`, `units list` gives `unitId`. `classes list` and `students list` use
+the readable `id`.
+
 ## Before you write
 
 1. `planbook auth status` - confirm the session (exit 77 means stop).

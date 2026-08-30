@@ -80,8 +80,23 @@ def student_payload(
 
 
 def create_student(client: PlanbookClient, **fields: Any) -> dict[str, Any]:
+    # /addStudentServlet does not report the new id. Diff the account roster
+    # around the write so the caller gets a student_id to update or delete.
+    def roster_ids() -> set[str]:
+        return {
+            str(s.get("id"))
+            for s in (list_students(client) or [])
+            if isinstance(s, dict) and s.get("id") is not None
+        }
+
+    before = roster_ids()
     client.post("/addStudentServlet", student_payload(**fields))
-    return {"ok": True, "name": f"{fields['first_name']} {fields['last_name']}"}
+    created = roster_ids() - before
+    return {
+        "ok": True,
+        "name": f"{fields['first_name']} {fields['last_name']}",
+        "student_id": created.pop() if len(created) == 1 else None,
+    }
 
 
 def find_student(

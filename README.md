@@ -90,9 +90,12 @@ Every command prints JSON to stdout, so output pipes straight into `jq` or an ag
 planbook auth import
 ```
 
-Sign in to Planbook in your normal browser - normal window, normal Google
-session - then run that. It reads the one cookie it needs out of your browser's
-cookie store, verifies it, and stores it.
+Just run it. If you are already signed in to Planbook in your browser, it reads
+the one cookie it needs, verifies it, and stores it. If you are not signed in
+yet, it opens the Planbook sign-in page and waits - sign in there (normal
+window, your usual Google session) and it picks up the token automatically, no
+second command. On macOS, approve the one-time Keychain prompt (choose Always
+Allow so it stops asking).
 
 Nothing is automated and no browser is driven, which is the point: Google
 rejects OAuth inside automation-controlled browsers ("this browser or app may

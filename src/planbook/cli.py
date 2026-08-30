@@ -130,6 +130,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(browser_cookies.KNOWN_BROWSERS),
         help="which browser to read; defaults to yours, then the rest",
     )
+    a.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="do not open the sign-in page and wait; fail if no token is found",
+    )
+    a.add_argument(
+        "--wait-timeout",
+        dest="wait_timeout",
+        type=int,
+        default=180,
+        help="seconds to wait for you to sign in (default 180)",
+    )
     a.set_defaults(func=cmd_auth_import)
     # "cookie" kept as an alias: it is in older docs and in muscle memory.
     a = s_auth.add_parser(

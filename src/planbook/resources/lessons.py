@@ -20,6 +20,7 @@ def delete_lesson(
     class_id: Any,
     date: str,
 ) -> dict[str, Any]:
+    date = parse_date(date)
     payload = {"classId": intish(class_id), "customDate": date, "userMode": "T"}
     client.post("/deleteLesson", payload)
     return {"ok": True, "class_id": payload["classId"], "date": date}
@@ -109,6 +110,10 @@ def find_lesson(
     client: PlanbookClient, *, class_id: Any, date: str
 ) -> dict[str, Any] | None:
     """The saved lesson for one class on one date, or None."""
+    # Normalize so the exact-string compare below matches the server's always
+    # zero-padded dates - a bulk item's raw "9/3/2026" would otherwise miss the
+    # lesson saved on "09/03/2026" and the caller would overwrite it blank.
+    date = parse_date(date)
     body = client.post(
         "/getLessonsEvents",
         {"monday": date, "userMode": "T", "fetchWeekSize": "1"},
@@ -426,6 +431,7 @@ def lessons_between(
     client: PlanbookClient, *, start: str, end: str
 ) -> list[dict[str, Any]]:
     """Saved lessons falling on or between two dates."""
+    start, end = parse_date(start), parse_date(end)
     weeks = 1
     with contextlib.suppress(ValueError):
         weeks = max(1, (_as_date(end) - _as_date(start)).days // 7 + 2)

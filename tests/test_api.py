@@ -961,3 +961,23 @@ def test_update_unit_raises_on_a_missing_id_instead_of_blanking():
     responses.post(f"{API_BASE}/getUnits", json={"units": []})
     with pytest.raises(ApiError):
         api.update_unit(PlanbookClient("t.t.t"), unit_id=999, class_id=1, title="X")
+
+
+@responses.activate
+def test_find_lesson_matches_an_unpadded_date_against_the_server_form():
+    # A bulk item's "9/3/2026" must find the lesson saved on "09/03/2026",
+    # not miss it and overwrite the record blank.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/03/2026",
+                    "objects": [{"classId": 1, "lessonId": 9, "lessonTitle": "Keep"}],
+                }
+            ]
+        },
+    )
+    found = api.find_lesson(PlanbookClient("t.t.t"), class_id=1, date="9/3/2026")
+    assert found is not None
+    assert found["lessonTitle"] == "Keep"

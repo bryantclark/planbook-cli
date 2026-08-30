@@ -7,9 +7,13 @@ docs exist; endpoints can change without notice.
 
 | host | notes |
 |---|---|
-| `app.planbook.com` | Vue SPA. Behind AWS WAF — returns 405 to non-browser clients. Don't script this host. |
-| `api.planbook.com` | The API. No WAF. Root path serves marketing HTML (looks like a dead end; it isn't). |
-| `auth.planbook.com` | Login. No WAF. SSO: Google, Microsoft, Clever, ClassLink, Apple. |
+| `app.planbook.com` | Vue SPA. Answers 405 to non-browser clients. Not scripted by this tool. |
+| `api.planbook.com` | The API. Root path serves marketing HTML (looks like a dead end; it isn't). |
+| `auth.planbook.com` | Login. SSO: Google, Microsoft, Clever, ClassLink, Apple. |
+
+Edge protection is not applied uniformly across these hosts. That observation
+went to Planbook directly and is not detailed here; see
+[PRODUCTION-READINESS.md](PRODUCTION-READINESS.md).
 
 ## Auth
 

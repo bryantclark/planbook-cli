@@ -3,6 +3,11 @@
 Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
 plans and the schedule around them; reads grades and attendance — built for both people and AI agents.
 
+Not affiliated with, endorsed by, or supported by Planbook.com. It works on your
+own account with your own credentials. See [SECURITY.md](SECURITY.md) for what it
+does with them, and [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md)
+for what an official, supported version would take.
+
 No published API exists yet; this tool talks to the same API the web app uses.
 See [docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details.
 Run `planbook endpoints` for current coverage.
@@ -53,9 +58,13 @@ Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` ove
 ## Caveats
 
 - No published API exists yet; endpoints may change. See [docs/API-NOTES.md](docs/API-NOTES.md).
-- `app.planbook.com` is behind AWS WAF; `api.planbook.com` is not.
+- Only `api.planbook.com` is used; the web app host is never scripted.
 - Requests are serialized. No parallelism.
 - Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and discretionary termination.
+
+- Authentication is a stopgap: the tool carries your existing browser token. A
+  proper OAuth client is what this should use instead — see
+  [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
 
 There's evidence of a sanctioned API-key mechanism. If you depend on this tool, ask support@planbook.com.
 

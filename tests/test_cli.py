@@ -292,3 +292,18 @@ def test_bulk_rejects_a_non_string_text_field(tmp_path):
     f = tmp_path / "b.json"
     f.write_text(json.dumps([{"date": "09/03/2026", "title": 123}]))
     assert cli.main(["lessons", "bulk", str(f), "--class-id", "1", "--dry-run"]) == 64
+
+
+def test_auth_import_does_not_open_a_browser_when_non_interactive(monkeypatch):
+    # Agents/CI (no TTY) must get the typed error, never a browser or a wait.
+    from planbook.commands import auth as authcmd
+
+    monkeypatch.setattr(authcmd, "_best_browser_token", lambda args: None)
+    monkeypatch.setattr(authcmd.config, "load_session_or_none", lambda: None)
+    monkeypatch.setattr(authcmd.browser_cookies, "diagnose", lambda: {})
+    opened = []
+    monkeypatch.setattr(authcmd.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    assert cli.main(["auth", "import"]) == 64
+    assert opened == []

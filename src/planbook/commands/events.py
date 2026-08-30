@@ -55,6 +55,7 @@ def cmd_events_create(args: argparse.Namespace) -> None:
             private=args.private,
             no_school=args.no_school,
             repeats=args.repeats,
+            force=args.force,
         )
     )
 

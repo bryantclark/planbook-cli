@@ -72,7 +72,7 @@ def create_todo(
     )
     try:
         client.post("/updateToDo", payload)
-    except PlanbookError:
+    except Exception:
         # Step one already created an empty row. Leaving it behind would put
         # a blank to-do in the user's list with no sign of where it came from.
         with contextlib.suppress(PlanbookError):
@@ -92,6 +92,12 @@ def update_todo(
     done: bool = False,
     repeats: str = "daily",
 ) -> dict[str, Any]:
+    """Update a to-do.
+
+    The endpoint replaces the whole record, so every field must be restated;
+    the CLI requires them rather than silently reopening a completed to-do or
+    resetting its priority.
+    """
     client.post(
         "/updateToDo",
         _todo_payload(

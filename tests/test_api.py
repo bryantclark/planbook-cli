@@ -650,3 +650,54 @@ def test_set_lesson_carries_over_text_it_was_not_asked_to_change():
     assert sent["lessonText"] == "<p>body</p>"
     assert sent["homeworkText"] == "hw"
     assert sent["notesText"] == "notes"
+
+
+@responses.activate
+def test_set_lesson_carries_over_times_unit_and_flags():
+    # A saved lesson reports its times as startTime/endTime; the write side
+    # calls them customStart/customEnd. Reading the wrong name made the
+    # carry-over dead code and blanked custom times on any later edit.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/01/2026",
+                    "dayOfWeek": "Tuesday",
+                    "objects": [
+                        {
+                            "classId": 1,
+                            "className": "Math",
+                            "lessonId": 9,
+                            "lessonTitle": "Keep",
+                            "lessonText": "<p>b</p>",
+                            "startTime": "9:05 AM",
+                            "endTime": "9:55 AM",
+                            "unitId": 42,
+                            "lessonLock": "Y",
+                            "extraLesson": 0,
+                            "linkedLessonId": 0,
+                            "tab4Text": "<p>objectives</p>",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    api.set_lesson(
+        PlanbookClient("t.t.t"), class_id=1, date="09/01/2026", title="Renamed"
+    )
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [c for c in responses.calls if c.request.url.endswith("/updateLesson")][
+                -1
+            ].request.body
+        )
+    )
+    assert sent["lessonTitle"] == "Renamed"
+    assert sent["customStart"] == "9:05 AM"
+    assert sent["customEnd"] == "9:55 AM"
+    assert sent["unitId"] == "42"
+    assert sent["lessonLock"] == "Y"
+    assert sent["tab4Text"] == "<p>objectives</p>"

@@ -411,6 +411,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="mark as a no-school day",
     )
     e.add_argument(
+        "--force",
+        action="store_true",
+        help="with --no-school, delete the lessons that already exist on that date",
+    )
+    e.add_argument(
         "--repeats",
         default="daily",
         help="recurrence across the date range (default: daily)",
@@ -537,6 +542,9 @@ def main(argv: list[str] | None = None) -> int:
         # 64 for bad arguments, not a traceback.
         print(f"error: invalid argument: {exc}", file=sys.stderr)
         return UsageError.exit_code
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return PlanbookError.exit_code
     except requests.RequestException as exc:
         print(f"error: could not reach Planbook: {exc}", file=sys.stderr)
         return PlanbookError.exit_code

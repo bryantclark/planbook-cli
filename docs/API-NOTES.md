@@ -260,7 +260,7 @@ date**. Deleting the event afterwards restores the empty class slots but not the
 lessons - verified by losing six real lessons to it.
 
 Nothing in the API signals this: `addEvent` answers the same as any other event.
-The CLI checks for existing lessons first and refuses without `--force`.
+The CLI checks for existing lessons first and refuses without `events create --force`.
 
 ## getLessonsEvents
 

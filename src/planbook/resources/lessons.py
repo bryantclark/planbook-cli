@@ -127,6 +127,13 @@ def find_lesson(
     return None
 
 
+def _yn_of(value: Any) -> str:
+    """Normalise a flag that may arrive as a bool or as "Y"/"N"."""
+    if isinstance(value, bool):
+        return yn(value)
+    return yn(str(value).upper() == "Y")
+
+
 def _html(value: Any) -> str:
     """Text fields come back as strings or None; normalise for re-sending."""
     return "" if value is None else str(value)
@@ -265,6 +272,7 @@ def set_lesson(
     # a call that only attached a standard. So every write is
     # read-modify-write, and anything the caller did not name is carried over.
     existing = find_lesson(client, class_id=class_id, date=date)
+    carry: dict[str, Any] = {}
     if existing:
         title = title if title is not None else _html(existing.get("lessonTitle"))
         text = text if text is not None else _html(existing.get("lessonText"))
@@ -273,8 +281,12 @@ def set_lesson(
         )
         notes = notes if notes is not None else _html(existing.get("notesText"))
         if start_time is None and end_time is None:
-            start_time = _html(existing.get("customStart")) or None
-            end_time = _html(existing.get("customEnd")) or None
+            # A saved lesson reports its times as startTime/endTime; only the
+            # write side calls them customStart/customEnd.
+            start_time = _html(existing.get("startTime")) or None
+            end_time = _html(existing.get("endTime")) or None
+        if unit_id is None:
+            unit_id = existing.get("unitId")
         carried = {
             index: _html(existing.get(field))
             for index, field in SECTION_FIELDS.items()
@@ -282,6 +294,13 @@ def set_lesson(
         }
         if carried:
             sections = {**carried, **(sections or {})}
+        # Flags the payload would otherwise reset to their defaults.
+        carry = {
+            "lessonLock": _yn_of(existing.get("lessonLock")),
+            "extraLesson": intish(existing.get("extraLesson")),
+            "linkedLessonId": intish(existing.get("linkedLessonId")),
+            "isEditingALinkedLesson": _yn_of(existing.get("isEditingALinkedLesson")),
+        }
 
     payload, updated = lesson_payload(
         class_id=class_id,
@@ -298,6 +317,9 @@ def set_lesson(
         assignments=assignments,
         attach=attach,
     )
+    # Flags the fresh payload would otherwise reset on an existing lesson.
+    payload.update(carry)
+
     if assignments:
         # Assignments belong to a class. Attaching one from a different class
         # is accepted and silently does nothing.

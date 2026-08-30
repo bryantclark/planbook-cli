@@ -156,7 +156,9 @@ planbook classes create ... --days MTWRF --time 9:00-9:50
 **`lessons set` is an upsert keyed on class + date**, and a true partial update:
 it reads the lesson first and carries over anything you do not name. That read is
 not optional - the server writes empty any text field it receives empty, so a
-standards-only write would otherwise blank the lesson. Writing the same date twice
+standards-only write would otherwise blank the lesson. It costs one extra request
+per write, so a bulk file makes roughly two requests per lesson (more on a new
+date that also attaches standards or files). Writing the same date twice
 edits the existing lesson in place; it does not create a duplicate. This makes it
 safe to re-run, and it is the main reason to use this tool over Planbook's CSV
 import, which is append-only.

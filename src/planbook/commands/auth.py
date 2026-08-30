@@ -165,10 +165,26 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
 
 
 def _guided_sign_in(args: argparse.Namespace) -> None:
+    # No point opening a browser and polling a cookie store this tool cannot
+    # read. Safari on macOS is the common case - blocked without Full Disk
+    # Access - so say so and point to a store that works.
+    if not browser_cookies.any_store_readable():
+        raise UsageError(
+            "This tool reads the sign-in token from your browser's cookie "
+            "store, and none it can read is available here.\n"
+            "Safari's store is blocked on macOS without Full Disk Access, so "
+            "the easy paths are:\n"
+            "  - sign in with Chrome, Brave, Edge, Vivaldi, Opera or Firefox, "
+            "then rerun `planbook auth import`, or\n"
+            "  - paste a token once with `planbook auth token` (works from any "
+            "browser)."
+        )
     print(
         f"\nNot signed in yet. Opening {SIGN_IN_URL} in your browser.\n"
         "Sign in there (normal window, your usual Google login), then come "
-        "back here - this will pick up automatically.",
+        "back here - this will pick up automatically.\n"
+        "Use Chrome, Brave, Edge, Vivaldi, Opera or Firefox - Safari's cookies "
+        "cannot be read without Full Disk Access.",
         file=sys.stderr,
     )
     with contextlib.suppress(Exception):

@@ -90,6 +90,20 @@ def search(preferred: str | None = None) -> Iterator[tuple[str, str]]:
             continue
 
 
+def any_store_readable() -> bool:
+    """True if at least one browser's cookie store can be read at all.
+
+    A store that answers - even with no Planbook token - is readable. Safari on
+    macOS is not, without Full Disk Access, so a Safari-only machine returns
+    False and the caller can say so instead of polling a store it can never read.
+    """
+    bad = ("unreadable", "locked", "not installed", "timed out")
+    for status in diagnose().values():
+        if not any(flag in status for flag in bad):
+            return True
+    return False
+
+
 def diagnose() -> dict[str, str]:
     """Per-browser status, for when the search finds nothing useful."""
     report: dict[str, str] = {}

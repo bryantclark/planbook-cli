@@ -134,7 +134,7 @@ Confirm with the user before running any of these:
 - `grades` and `attendance` are read-only.
 - Seating charts, lesson banks, messages, and reporting are not mapped.
 - `filterNotes` is blocked on an unknown parameter.
-- Signing in needs a human at the keyboard: `auth browser`, `auth login`, `auth token`. `auth status` and `auth import` then run unattended.
+- Signing in needs a human at the keyboard: `auth token`, and the Keychain prompt behind `auth import`. `auth status` then runs unattended.
 
 ## Safety
 

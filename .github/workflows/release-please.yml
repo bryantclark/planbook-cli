@@ -10,11 +10,34 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       # Maintains a release PR that bumps the version and CHANGELOG from the
       # commits since the last release. Merging that PR tags the release.
       # Uses the built-in GITHUB_TOKEN - no secrets, free on public repos.
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    # Runs only when the merged release PR actually cut a release. Kept in this
+    # workflow on purpose: a release the bot creates with GITHUB_TOKEN does not
+    # trigger a separate `on: release` workflow, so publishing has to happen in
+    # the same run that created the release.
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing (OIDC) - no API token/secret needed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install build
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

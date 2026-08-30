@@ -4,7 +4,9 @@ Three API facts drive the design:
 
 1.  Failure arrives as HTTP 200 with an error body, so every response goes
     through :meth:`_check`.
-2.  Every call is a form-encoded POST; there is no JSON body and no other verb.
+2.  Most calls are a form-encoded POST; a `/services/planbook/**` family is
+    GET-only (:meth:`get`) and a few endpoints want a JSON body
+    (:meth:`post_json`).
 3.  Integer-typed fields must carry "0" when absent - "" raises a server-side
     Java NullPointerException.
 
@@ -145,7 +147,8 @@ class PlanbookClient:
             if str(body.get("notLoggedIn", "")).lower() == "true":
                 raise NotAuthenticated(
                     "Your Planbook token was rejected - it has probably expired "
-                    "(they last about 22 hours)." + SIGN_IN_HELP
+                    "(they last about 22 hours, or 1 hour for auth-server tokens)."
+                    + SIGN_IN_HELP
                 )
             if str(body.get("error", "")).lower() == "true":
                 detail = body.get("msg") or body.get("message")

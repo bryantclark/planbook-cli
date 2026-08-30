@@ -1,7 +1,7 @@
 """Command-line surface, aimed at agents as much as people:
 
-* stdout carries JSON and nothing else, so it is always safe to pipe.
-* Diagnostics go to stderr.
+* stdout carries JSON on success and is empty on failure; diagnostics go to
+  stderr. Branch on the exit code before parsing stdout.
 * Exit codes: 64 usage, 65 unexpected response shape, 77 not authenticated,
   1 everything else.
 * Writes accept --dry-run, which prints the form payload instead of sending it.
@@ -322,16 +322,26 @@ def build_parser() -> argparse.ArgumentParser:
     sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     sub_lesson.add_argument("--dry-run", action="store_true")
     sub_lesson.set_defaults(func=cmd_lessons_delete)
-    sub_lesson = s_les.add_parser(
-        "week", help="fetch a week of lessons and events (partial mapping)"
-    )
-    sub_lesson.add_argument("--monday", required=True, metavar="MM/DD/YYYY", type=_date)
-    sub_lesson.add_argument("--weeks", type=int, default=1)
+    sub_lesson = s_les.add_parser("week", help="a week of lessons grouped by date")
     sub_lesson.add_argument(
-        "--all", action="store_true", help="include days with no saved lesson"
+        "--monday",
+        required=True,
+        metavar="MM/DD/YYYY",
+        type=_date,
+        help="any date in the week; the range starts on its Sunday",
     )
     sub_lesson.add_argument(
-        "--raw", action="store_true", help="print the unmapped response body"
+        "--weeks", type=int, default=1, help="how many weeks to return (default 1)"
+    )
+    sub_lesson.add_argument(
+        "--all",
+        action="store_true",
+        help="include class slots on a day that have no saved lesson",
+    )
+    sub_lesson.add_argument(
+        "--raw",
+        action="store_true",
+        help="the undecoded body; the only form that also carries calendar events",
     )
     sub_lesson.set_defaults(func=cmd_lessons_week)
 
@@ -385,7 +395,12 @@ def build_parser() -> argparse.ArgumentParser:
                 const=False,
                 help="mark a completed to-do as not done",
             )
-        t.add_argument("--repeats", default="daily" if creating else None)
+        t.add_argument(
+            "--repeats",
+            default="daily" if creating else None,
+            help="recurrence; defaults to 'daily' on create, so a one-off "
+            "to-do needs an explicit non-repeating value",
+        )
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
     t.add_argument("--todo-id", dest="todo_id", required=True)
@@ -479,17 +494,19 @@ def build_parser() -> argparse.ArgumentParser:
     st.set_defaults(func=cmd_students_list)
     for verb, fn in (("create", cmd_students_create), ("update", cmd_students_update)):
         updating = verb == "update"
-        help_suffix = (
-            " - REPLACES the whole record: unspecified fields are cleared, so "
-            "pass every field you want to keep"
-            if updating
-            else ""
-        )
-        st = s_st.add_parser(verb, help=f"{verb} a student{help_suffix}")
+        st = s_st.add_parser(verb, help=f"{verb} a student")
         if updating:
+            # Update reads the current record first (a full-replace endpoint),
+            # so it needs the class the student is in and needs nothing else.
             st.add_argument("--student-id", dest="student_id", required=True)
-        st.add_argument("--first-name", dest="first_name", required=True)
-        st.add_argument("--last-name", dest="last_name", required=True)
+            st.add_argument(
+                "--class-id",
+                dest="class_id",
+                required=True,
+                help="the class the student is in; read first so nothing is lost",
+            )
+        st.add_argument("--first-name", dest="first_name", required=not updating)
+        st.add_argument("--last-name", dest="last_name", required=not updating)
         st.add_argument("--middle-name", dest="middle_name")
         st.add_argument("--code", help="student id/code used by the school")
         st.add_argument("--email")
@@ -553,13 +570,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="KEY=VALUE",
         help="form field; repeatable",
     )
-    p.add_argument(
+    _verb = p.add_mutually_exclusive_group()
+    _verb.add_argument(
         "--get",
         action="store_true",
         help="send as GET; some /services/planbook/** endpoints are GET-only "
         "and answer a POST with 405",
     )
-    p.add_argument(
+    _verb.add_argument(
         "--json",
         action="store_true",
         help="send fields as a JSON body; a few service endpoints reject form "
@@ -590,6 +608,11 @@ def main(argv: list[str] | None = None) -> int:
     except requests.RequestException as exc:
         print(f"error: could not reach Planbook: {exc}", file=sys.stderr)
         return PlanbookError.exit_code
+    except EOFError:
+        # A prompt (auth login) with nothing on stdin - CI, a pipe. The
+        # contract is an exit code, not a traceback.
+        print("error: no input available for a prompt.", file=sys.stderr)
+        return UsageError.exit_code
     except KeyboardInterrupt:
         return 130
     return 0

@@ -8,7 +8,7 @@ is here; you should not need to read the source.
 
 ## Output contract
 
-- **stdout is always JSON.** Nothing else is ever written there. Parse it directly.
+- **stdout is JSON on success, empty on failure.** On success stdout carries JSON and nothing else. On failure it is empty and the diagnosis goes to stderr, so branch on the exit code first, then parse stdout.
 - **stderr is prose.** Diagnostics, request logs under `-v`. Never parse it.
 - **Exit codes carry meaning:**
 
@@ -43,13 +43,13 @@ Run `planbook <group> --help` for exact flags. Groups:
 
 | group | what it does |
 |---|---|
-| `auth` | `status`, `import`, `token`, `browser`, `logout` |
+| `auth` | `status`, `import`, `token`, `browser`, `login`, `logout` |
 | `classes` | `list`, `get`, `create`, `update`, `delete` |
 | `lessons` | `set`, `bulk`, `get`, `delete`, `week`, `sections` |
 | `units` | `list`, `create`, `update`, `delete` |
 | `events` | `list`, `create`, `delete` |
 | `todos` | `list`, `create`, `update`, `delete` |
-| reads | `assignments`, `assessments`, `schools`, `templates`, `students`, `standards`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| reads | `assignments`, `assessments`, `schools`, `templates`, `standards`, `comments`, `attachments`, `settings`, `schedule special-days` (each takes a subcommand only where shown) |
 | `students` | `list`, `create`, `update`, `delete` |
 | `attendance` | read attendance for a class on a date (read-only) |
 | `grades` | grade periods and scored assignments |
@@ -72,7 +72,7 @@ planbook auth logout
 `auth status` and `auth logout` are always safe unattended. So is `auth import`,
 though it may raise a macOS Keychain prompt the user has to approve.
 
-**Tokens last about 22 hours.** On exit 77, the stderr message already contains
+**Tokens last about 22 hours (1 hour for auth-server tokens).** On exit 77, the stderr message already contains
 the full remedy - a sign-in URL and the exact command. Show it to the user rather
 than paraphrasing, then run `planbook auth import` once they say they have signed
 in. Do not try to sign in yourself.
@@ -91,7 +91,7 @@ browser reaches.
 ```bash
 planbook classes list                     # classes + weekly schedule, readable keys
 planbook classes list --raw               # unmapped wire format
-planbook schedule special-days --teacher-id N --year-id N
+planbook schedule special-days              # teacher and year id default from the token
 planbook settings
 planbook standards
 planbook lessons week --monday 08/31/2026 [--weeks 3]
@@ -102,9 +102,13 @@ planbook endpoints                        # what is mapped and what is not
 `teacher_id`, and a `schedule` object with per-day `teaches`/`start`/`end`. Get the
 class id from here before writing anything.
 
-`lessons week` is **partially mapped**: the call works but the response is passed
-through unmodified because the `days` structure has not been decoded. Treat its
-output as raw, and do not build logic on its internals.
+`lessons week` is **mapped**: it returns a list of days, each `{date, day_of_week,
+lessons: [...]}`, where every lesson carries `class_id`, `class_name`, `lesson_id`,
+`title`, `start`, `end`, `text`, `homework`, `notes`, `standards`, `assignments`
+and `attachments`. It is the natural answer to "what am I teaching this week".
+`--all` also includes class slots on a day that have no saved lesson; `--weeks N`
+extends the range; `--raw` returns the undecoded body, which is the only form that
+also carries calendar events.
 
 ### Writing
 
@@ -240,11 +244,17 @@ These delete data with no undo. Confirm with the user before running them.
 - `lessons delete --class-id N --date D` - clears one lesson.
 - `events delete --event-id N` - removes the **whole repeating series** by default; pass
   `--occurrence-only` for just that date.
-- `units delete`, `todos delete` - remove one record.
+- `units delete --unit-id N --class-id N` - removes one unit.
+- `todos delete --todo-id N` - removes one to-do.
+- `students delete --student-id N` - removes one student immediately; no `--yes`,
+  no `--dry-run`.
 
 ## Things this tool will not do
 
-- Grades, attendance, seating charts, lesson banks, messages, reporting. Not mapped;
+- `grades` and `attendance` are **read-only**; there is no write endpoint for either.
+- Seating charts, lesson banks, messages and reporting are not mapped;
   `planbook endpoints` shows what `raw` might reach.
-- Notes and templates are listed but need arguments that are not yet mapped.
+- Notes are unreachable: `filterNotes` wants an integer the server will not name,
+  so it is not offered as a command (see `planbook endpoints`). `templates` works
+  and needs no arguments.
 - Sign you in. Every auth path needs a human.

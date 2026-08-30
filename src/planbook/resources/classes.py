@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from ..client import PlanbookClient
-from ..errors import SchemaDrift
+from ..errors import ApiError, SchemaDrift
 from ..wire import (
     DAY_ORDER,
     DAY_PREFIXES,
@@ -151,14 +151,22 @@ def create_class(
     client.post("/addClass", payload)
     after = (client.post("/getClasses2") or {}).get("classes") or []
     created = [c for c in after if str(c.get("cId")) not in before]
+    if not created:
+        # No new class appeared, so /addClass silently did nothing. Reporting
+        # ok here would be the success-that-destroys-nothing-but-created-nothing
+        # trap the API sets everywhere.
+        raise ApiError(
+            "Creating the class did not take: no new class appeared. "
+            "The server accepts /addClass with HTTP 200 even when it stores nothing."
+        )
     result: dict[str, Any] = {"ok": True, "name": name, "days": days}
     if len(created) == 1:
         result["class_id"] = created[0].get("cId")
     else:
         result["class_id"] = None
         result["note"] = (
-            "Could not identify the new class id "
-            f"({len(created)} classes appeared). Run `planbook classes list`."
+            f"{len(created)} classes appeared at once, so the new id is "
+            "ambiguous. Run `planbook classes list`."
         )
     return result
 

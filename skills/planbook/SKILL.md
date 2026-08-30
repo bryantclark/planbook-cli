@@ -28,7 +28,7 @@ planbook classes list
 
 ## The contract
 
-- **stdout is always JSON.** Parse it. Nothing else is written there.
+- **stdout is JSON on success, empty on failure.** Branch on the exit code, then parse stdout. Diagnoses go to stderr.
 - **stderr is prose.** Never parse it.
 - **Exit codes:** 0 ok · 1 API error · 64 bad arguments · 65 **API shape changed —
   stop, do not retry or improvise** · 77 re-auth needed.
@@ -94,12 +94,13 @@ Run `planbook <group> --help` for exact flags rather than guessing.
 ## Rules
 
 - **Never invent a class id.** Read it from `classes list`.
-- **`--dry-run` first** on anything generated in bulk. It needs no network for
-  lessons, and prints the exact payload.
+- **`--dry-run` first** on anything generated in bulk. It prints the exact payload.
+  It is offline for numbered sections; a section *label*, `--attach`, or
+  `classes update` reads from the server and so needs a session.
 - **Destructive commands need confirming with the user first**: `classes delete`
   (removes every lesson in the class, and requires `--yes`), `lessons delete`,
   `events delete` (the whole repeating series unless `--occurrence-only`),
-  `units delete`, `todos delete`.
+  `units delete`, `todos delete`, and `students delete` (immediate, no `--yes`).
 - **On exit 65, stop.** The API changed shape; guessing corrupts real lesson plans.
 - Requests are serialised on purpose. Do not parallelise them.
 

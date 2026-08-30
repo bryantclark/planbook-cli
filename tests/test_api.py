@@ -6,7 +6,7 @@ import responses
 
 from planbook import api
 from planbook.client import API_BASE, PlanbookClient
-from planbook.errors import SchemaDrift, UsageError
+from planbook.errors import ApiError, SchemaDrift, UsageError
 
 
 def class_wire_record(teach_days=("m", "t", "w", "r", "f")):
@@ -501,6 +501,8 @@ def test_no_school_event_refuses_to_delete_existing_lessons():
 
 @responses.activate
 def test_no_school_event_allowed_with_force():
+    # --force must bypass the guard AND actually send noSchool=true; the old
+    # test only checked ok, so it would have passed even if force did nothing.
     responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
     responses.post(f"{API_BASE}/addEvent", json={"events": []})
     result = api.create_event(
@@ -511,6 +513,36 @@ def test_no_school_event_allowed_with_force():
         force=True,
     )
     assert result["ok"] is True
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [c for c in responses.calls if c.request.url.endswith("/addEvent")][
+                -1
+            ].request.body
+        )
+    )
+    assert sent["noSchool"] == "true"
+    assert sent["updatedFields"] == "extraDays"
+
+
+@responses.activate
+def test_no_school_event_blocked_without_force_when_lessons_exist():
+    # The guard must fire before /addEvent is called, or lessons are lost.
+    responses.post(
+        f"{API_BASE}/getLessonsEvents",
+        json={
+            "days": [
+                {
+                    "date": "09/07/2026",
+                    "objects": [{"classId": 1, "className": "Math", "lessonId": 9}],
+                }
+            ]
+        },
+    )
+    with pytest.raises(UsageError):
+        api.create_event(
+            PlanbookClient("t.t.t"), title="Holiday", date="09/07/2026", no_school=True
+        )
+    assert not [c for c in responses.calls if c.request.url.endswith("/addEvent")]
 
 
 @responses.activate
@@ -798,3 +830,49 @@ def test_update_unit_carries_over_what_the_caller_did_not_name():
     assert sent["unitDesc"] == "keep me"
     assert sent["unitStart"] == "09/01/2026"
     assert sent["unitLessonText"] == "<p>plan</p>"
+
+
+@responses.activate
+def test_update_student_carries_over_and_needs_the_class():
+    # /updateStudentServlet replaces the whole record, so a rename used to
+    # blank the email, phone and parent email the student had on file.
+    responses.post(
+        f"{API_BASE}/getStudentsServlet",
+        json={
+            "students": [
+                {
+                    "studentId": 7,
+                    "firstName": "Ada",
+                    "lastName": "Lovelace",
+                    "emailAddress": "ada@x.z",
+                    "phoneNumber": "555-0100",
+                    "parentEmailAddress": "parent@x.z",
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateStudentServlet", json={"ok": True})
+    api.update_student(
+        PlanbookClient("t.t.t"), student_id=7, class_id=1, last_name="Byron"
+    )
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [
+                c
+                for c in responses.calls
+                if c.request.url.endswith("/updateStudentServlet")
+            ][-1].request.body
+        )
+    )
+    assert sent["studentLastName"] == "Byron"
+    assert sent["studentFirstName"] == "Ada"
+    assert sent["studentEmailAddress"] == "ada@x.z"
+    assert sent["studentPhoneNumber"] == "555-0100"
+    assert sent["parentEmailAddress"] == "parent@x.z"
+
+
+@responses.activate
+def test_update_student_refuses_when_the_student_is_not_in_the_class():
+    responses.post(f"{API_BASE}/getStudentsServlet", json={"students": []})
+    with pytest.raises(ApiError):
+        api.update_student(PlanbookClient("t.t.t"), student_id=7, class_id=1)

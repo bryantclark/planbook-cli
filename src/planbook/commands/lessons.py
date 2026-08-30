@@ -50,10 +50,9 @@ def _attachments_from(
         return None
     if client is None:
         raise UsageError("--attach needs a network connection; drop --dry-run.")
-    return [
-        api.resolve_attachment(client, ref, teacher_id=teacher_id_from(args))
-        for ref in args.attach
-    ]
+    return api.resolve_attachments(
+        client, list(args.attach), teacher_id=teacher_id_from(args)
+    )
 
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
@@ -72,14 +71,17 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             standards=args.standard or None,
             assignments=args.assignment or None,
         )
-        emit(
-            {
-                "dry_run": True,
-                "endpoint": "/updateLesson",
-                "payload": payload,
-                "updated_fields": updated,
-            }
-        )
+        preview: dict[str, Any] = {
+            "dry_run": True,
+            "endpoint": "/updateLesson",
+            "payload": payload,
+            "updated_fields": updated,
+        }
+        if args.attach:
+            # The real run uploads local files and links existing resources;
+            # --dry-run does neither, so name what it would touch.
+            preview["attachments_pending"] = list(args.attach)
+        emit(preview)
         return
 
     client = client_from(args)

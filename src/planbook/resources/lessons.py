@@ -333,6 +333,11 @@ def set_lesson(
         # exists; on a brand-new date the id is 0 and the server drops them.
         existing = find_lesson(client, class_id=class_id, date=date)
         if existing is None:
+            # Two writes for a new lesson: create it with its text, then attach.
+            # The first write carries the full title/text/homework, so if the
+            # second fails the lesson still holds the caller's content - only
+            # the attachments are missing. Deleting it on failure would throw
+            # that content away, so the error is left to propagate instead.
             client.post(
                 "/updateLesson", dict(payload, standardDBIds="", schoolWorks="[]")
             )

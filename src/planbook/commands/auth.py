@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import sys
 
 from .. import api, auth, browser_auth, browser_cookies, config
 from .. import token as pbtoken
@@ -75,6 +76,11 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
         if name:
             preferred = name.split()[0].lower()
 
+    print(
+        "Reading browser cookies. macOS may raise a Keychain prompt - approve "
+        "it to continue (choose Always Allow to skip it next time).",
+        file=sys.stderr,
+    )
     for browser, candidate in browser_cookies.search(preferred):
         if pbtoken.is_expired(candidate):
             continue

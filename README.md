@@ -4,7 +4,8 @@ Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
 plans through the private API that the web app uses.
 
 No published API exists. See [docs/API-NOTES.md](docs/API-NOTES.md) for how the
-endpoints were mapped. [AGENTS.md](AGENTS.md) is the agent-facing command reference.
+endpoints were mapped, and [docs/RECON.md](docs/RECON.md) for how to add more.
+[AGENTS.md](AGENTS.md) is the agent-facing command reference.
 
 ## Status
 

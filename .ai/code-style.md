@@ -25,8 +25,7 @@ paths:
 ## Imports
 
 - Standard library, then third-party, then project. `ruff` enforces ordering.
-- No `from __future__ import annotations` — the project targets 3.10+ and uses
-  `str | None` style directly.
+- Every module has `from __future__ import annotations`. Keep it.
 
 ## Formatting
 

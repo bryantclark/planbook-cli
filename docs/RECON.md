@@ -36,3 +36,8 @@ planbook raw /getAssignments -F classId=12345678
 3. Move the entry in `src/planbook/endpoints.py` from `observed` to `mapped`
 4. Document it in `AGENTS.md`
 5. Add a test with a recorded response fixture (no network calls)
+
+## Rules
+
+- **Use your own account.** Never another user's data.
+- All other rules (serialize requests, honest User-Agent, fail loudly, never hit `app.planbook.com`) are in `AGENTS.md` and `decisions/`.

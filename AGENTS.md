@@ -67,7 +67,8 @@ Run `planbook <group> --help` for exact flags.
 | `attendance` | read-only |
 | `grades` | grade periods and scored assignments |
 | `templates` | lesson templates |
-| reads | `assignments`, `assessments`, `schools`, `standards`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| reads | `assignments`, `assessments`, `schools`, `standards`, `comments`, `settings`, `schedule special-days` |
+| `attachments` | list, upload, link to lessons |
 | `raw` | POST to any endpoint; `--get` for GET paths, `--json` for JSON bodies |
 | `endpoints` | shows what is mapped |
 

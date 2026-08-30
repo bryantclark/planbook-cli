@@ -112,7 +112,10 @@ on a new date (`lessonId=0`) the server drops them silently.
 | repeated `standardDBIds=118071&standardDBIds=118072` | both attach |
 | `standardDBIds=` | clears |
 
-**Assignments** use `schoolWorks`, a JSON array:
+**Assignments** use `schoolWorks`, a JSON array. An assignment belongs to one
+class (`subjectId`); attaching one from another class is accepted and does
+nothing — the CLI checks ownership first.
+
 ```json
 [{"type":"ASSIGNMENT","typeId":3865664,"shortValueText":"","longValueText":0}]
 ```
@@ -127,6 +130,9 @@ POST /uploadAttachment    multipart, one file part (any field name)
 ```
 
 The part **must carry a content type** or the server throws an NPE.
+
+The lesson stores the **signed URL**, not a reference to the resource. Re-uploading
+a file under the same name silently replaces its content in every lesson linked to it.
 
 Linking to a lesson goes through `/updateLesson` as repeated triples:
 
@@ -145,7 +151,7 @@ Planbook stores 12-hour only. A 24-hour string is accepted without error and the
 time is lost.
 
 Three places carry times:
-- `updateLesson` `customStart`/`customEnd` — **do nothing**. Accepted, stored, ignored on read-back.
+- `updateLesson` `customStart`/`customEnd` — **do nothing**. Accepted, stored, ignored on read-back. Spellings tried: `CUSTOMSTART`/`CUSTOMEND`, `CUSTOMTIME` in `updatedFields`, `extraLesson=1`, `lessonStart`, `startTime`, `lessonStartTime`, `customStartTime`, `periodStart`, `timeStart`. All read back unchanged.
 - `addEvent` `eventStartTime`/`eventEndTime` — works.
 - Class `schedules` `startDayN`/`endDayN` (Sunday-indexed).
 
@@ -208,6 +214,7 @@ Ask support@planbook.com to register a public OAuth client. The issuer is `http`
 Terms (2020-07-01) have **no** anti-scraping, anti-automation, or
 reverse-engineering clause. They forbid forging headers, reserve rate limits, and
 allow discretionary termination. Risk is account termination, not legal.
+**Use your own account only.**
 
 ## Open
 

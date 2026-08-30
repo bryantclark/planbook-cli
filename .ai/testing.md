@@ -10,7 +10,7 @@ paths:
 ## No network calls
 
 Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
-Fixtures go in `tests/fixtures/` as recorded JSON responses.
+Response fixtures are inline in the test modules (`conftest.py` and `test_*.py`).
 
 ## What to test
 

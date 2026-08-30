@@ -1,6 +1,6 @@
 ---
 paths:
-  - '**/*.md'
+  - '**/*'
 ---
 
 # Writing style

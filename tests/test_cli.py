@@ -236,3 +236,36 @@ def test_raw_get_and_json_are_mutually_exclusive():
     with pytest.raises(SystemExit) as exc:
         cli.main(["raw", "/x", "--get", "--json"])
     assert exc.value.code == 64
+
+
+def test_todos_create_dry_run_is_offline(capsys):
+    # A create preview must not need a session.
+    assert (
+        cli.main(
+            ["todos", "create", "--text", "Grade", "--start", "09/01/2026", "--dry-run"]
+        )
+        == 0
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["dry_run"] is True
+    assert out["endpoint"] == "/updateToDo"
+
+
+def test_students_create_dry_run_is_offline(capsys):
+    assert (
+        cli.main(
+            [
+                "students",
+                "create",
+                "--first-name",
+                "Ada",
+                "--last-name",
+                "L",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert out["dry_run"] is True
+    assert out["payload"]["studentFirstName"] == "Ada"

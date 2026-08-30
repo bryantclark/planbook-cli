@@ -44,7 +44,7 @@ def _todo_payload(
 
 
 def create_todo(
-    client: PlanbookClient,
+    client: PlanbookClient | None,
     *,
     text: str,
     start: str,
@@ -52,7 +52,22 @@ def create_todo(
     priority: str = "low",
     done: bool = False,
     repeats: str = "daily",
+    dry_run: bool = False,
 ) -> dict[str, Any]:
+    if dry_run:
+        # Show the second write's payload; the id is only known after the
+        # create, so it reads 0 here. No row is created.
+        payload = _todo_payload(
+            todo_id=0,
+            text=text,
+            start=start,
+            due=due,
+            priority=priority,
+            done=done,
+            repeats=repeats,
+        )
+        return {"dry_run": True, "endpoint": "/updateToDo", "payload": payload}
+    assert client is not None  # only the dry_run branch runs without one
     created = client.post("/updateToDo", {"action": "A"})
     todo_id = None
     if isinstance(created, dict):
@@ -104,6 +119,7 @@ def update_todo(
     priority: str | None = None,
     done: bool | None = None,
     repeats: str | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Update a to-do, carrying over whatever the caller did not name.
 
@@ -127,18 +143,18 @@ def update_todo(
             done = str(existing.get("done")) in ("1", "true", "True")
         if repeats is None:
             repeats = str(existing.get("repeats") or "daily")
-    client.post(
-        "/updateToDo",
-        _todo_payload(
-            todo_id=todo_id,
-            text=text or "",
-            start=start or "",
-            due=due or "",
-            priority=priority or "low",
-            done=bool(done),
-            repeats=repeats or "daily",
-        ),
+    payload = _todo_payload(
+        todo_id=todo_id,
+        text=text or "",
+        start=start or "",
+        due=due or "",
+        priority=priority or "low",
+        done=bool(done),
+        repeats=repeats or "daily",
     )
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateToDo", "payload": payload}
+    client.post("/updateToDo", payload)
     return {"ok": True, "todo_id": intish(todo_id)}
 
 

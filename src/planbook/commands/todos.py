@@ -13,15 +13,17 @@ def cmd_todos_list(args: argparse.Namespace) -> None:
 
 
 def cmd_todos_create(args: argparse.Namespace) -> None:
+    client = None if args.dry_run else client_from(args)
     emit(
         api.create_todo(
-            client_from(args),
+            client,
             text=args.text,
             start=args.start,
             due=args.due or "",
             priority=args.priority,
             done=args.done,
             repeats=args.repeats,
+            dry_run=args.dry_run,
         )
     )
 
@@ -37,6 +39,7 @@ def cmd_todos_update(args: argparse.Namespace) -> None:
             priority=args.priority,
             done=args.done,
             repeats=args.repeats,
+            dry_run=args.dry_run,
         )
     )
 

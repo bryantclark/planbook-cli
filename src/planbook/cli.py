@@ -401,6 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="recurrence; defaults to 'daily' on create, so a one-off "
             "to-do needs an explicit non-repeating value",
         )
+        t.add_argument("--dry-run", action="store_true")
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
     t.add_argument("--todo-id", dest="todo_id", required=True)
@@ -513,6 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
         st.add_argument("--parent-email", dest="parent_email")
         st.add_argument("--phone")
         st.add_argument("--birthdate", metavar="MM/DD/YYYY", type=_date)
+        st.add_argument("--dry-run", action="store_true")
         st.set_defaults(func=fn)
     st = s_st.add_parser("delete", help="delete a student")
     st.add_argument("--student-id", dest="student_id", required=True)

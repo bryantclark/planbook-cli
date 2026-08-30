@@ -71,6 +71,7 @@ from .resources.todos import (
     _todo_payload,
     create_todo,
     delete_todo,
+    find_todo,
     list_todos,
     update_todo,
 )
@@ -137,6 +138,7 @@ __all__ = [
     "find_event",
     "find_lesson",
     "find_student",
+    "find_todo",
     "find_unit",
     "get_attendance",
     "get_class",

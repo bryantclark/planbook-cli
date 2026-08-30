@@ -216,6 +216,11 @@ def parse_date(value: str, *, flag: str = "date") -> str:
     would fail to find the lesson already saved on `09/03/2026` and a write
     would blank it as if the date were empty.
     """
+    if not isinstance(value, str):
+        raise UsageError(
+            f"{flag}: expected a date string, got {type(value).__name__}. "
+            "Planbook wants MM/DD/YYYY, e.g. 09/03/2026."
+        )
     parts = value.split("/")
     try:
         if len(parts) != 3:

@@ -216,7 +216,9 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
 
     client = client_from(args)
     closed = api.no_school_dates(client)
-    hit = sorted({i["date"] for i in items if i.get("date") in closed})
+    # Normalize each item's date before the membership test: closed holds the
+    # server's zero-padded dates, so a raw "9/7/2026" would miss the warning.
+    hit = sorted({d for i in items if (d := api.parse_date(i["date"])) in closed})
     if hit:
         print(
             f"warning: no-school day(s) in this batch: {', '.join(hit)}",

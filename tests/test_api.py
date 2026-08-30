@@ -981,3 +981,24 @@ def test_find_lesson_matches_an_unpadded_date_against_the_server_form():
     found = api.find_lesson(PlanbookClient("t.t.t"), class_id=1, date="9/3/2026")
     assert found is not None
     assert found["lessonTitle"] == "Keep"
+
+
+def test_parse_date_rejects_a_non_string_instead_of_crashing():
+    # A bulk item with a null date must be a usage error, not an AttributeError
+    # escaping main() as a traceback.
+    for bad in (None, 123, ["x"]):
+        with pytest.raises(UsageError):
+            api.parse_date(bad)  # type: ignore[arg-type]
+
+
+@responses.activate
+def test_auth_probe_rejects_a_token_that_answers_with_an_error_body():
+    # A rejected token can answer error:true with no notLoggedIn key; the probe
+    # must not store it as working.
+    import planbook.auth as auth
+
+    responses.post(
+        f"{auth.API_BASE}/getClasses2",
+        json={"error": "true", "msg": "date must not be null"},
+    )
+    assert auth._works("t.t.t") is False

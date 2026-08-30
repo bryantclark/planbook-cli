@@ -5,7 +5,7 @@ unofficial, and a few things have to change before Planbook could put its name
 on it or market it. This file says what those things are, who has to do each
 one, and roughly how big it is.
 
-Contact: Bryant Clark, bryant@k3.is.
+Contact: through GitHub — github.com/bryantclark/planbook-cli.
 
 ## Where it stands today
 

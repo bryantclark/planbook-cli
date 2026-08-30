@@ -2,8 +2,8 @@
 
 ## Reporting a vulnerability in this tool
 
-Email bryant@k3.is. Please do not open a public issue. Expect a reply within a
-week.
+Open a private security advisory on GitHub (Security > Report a vulnerability)
+rather than a public issue. Expect a reply within a week.
 
 ## Reporting something about Planbook.com
 

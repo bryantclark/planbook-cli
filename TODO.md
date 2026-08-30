@@ -3,8 +3,8 @@
 Delete before the final push.
 
 ## Loop review
-- [x] Pass 1 (Claude), Pass 2 (codex), Pass 3, Pass 4 - each found real defects, all fixed
-- [ ] Pass 5 - running (correctness + comment cleanup). Loop converges when a pass is clean.
+- [x] Passes 1-5 - each found real defects, all fixed
+- [ ] Pass 6 - running (correctness + comment cleanup). Loop converges when a pass is clean.
 
 Defects found and fixed across the passes:
 - token identity: two issuer claim-shapes, only one parsed -> every id null
@@ -12,7 +12,9 @@ Defects found and fixed across the passes:
 - lessons --start-time/--end-time silently ignored by server -> removed
 - notes / standards-report unreachable -> marked blocked, not offered
 - events delete --dry-run performed the delete; classes update --dry-run ignored
-- create_class reported ok when nothing was created -> raises
+- creates report ok only when a record actually appeared -> else raise
+- students update carried studentPhotoUrl / schoolDistrictId (were blanked)
+- find_student / update_todo raise on drift/not-found instead of guessing
 - raw -F collapsed repeated keys; raw --get/--json now mutually exclusive
 - --attach uploaded before validating all refs; dry-run omitted attachments
 - dates now validated locally (parse_date) instead of reaching a Java NPE

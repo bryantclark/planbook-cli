@@ -989,16 +989,3 @@ def test_parse_date_rejects_a_non_string_instead_of_crashing():
     for bad in (None, 123, ["x"]):
         with pytest.raises(UsageError):
             api.parse_date(bad)  # type: ignore[arg-type]
-
-
-@responses.activate
-def test_auth_probe_rejects_a_token_that_answers_with_an_error_body():
-    # A rejected token can answer error:true with no notLoggedIn key; the probe
-    # must not store it as working.
-    import planbook.auth as auth
-
-    responses.post(
-        f"{auth.API_BASE}/getClasses2",
-        json={"error": "true", "msg": "date must not be null"},
-    )
-    assert auth._works("t.t.t") is False

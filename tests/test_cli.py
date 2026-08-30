@@ -269,3 +269,18 @@ def test_students_create_dry_run_is_offline(capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["dry_run"] is True
     assert out["payload"]["studentFirstName"] == "Ada"
+
+
+@responses.activate
+def test_auth_status_keeps_stdout_empty_on_failure(capsys, monkeypatch, tmp_path):
+    # The output contract: stdout is JSON on success, empty on failure.
+    # "t.t.t" has no exp claim, so the client treats it as unexpired.
+    session = tmp_path / "token.json"
+    session.write_text(json.dumps({"token": "t.t.t"}))
+    monkeypatch.setattr("planbook.config.session_path", lambda: session)
+    monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
+    responses.post(f"{API_BASE}/getClasses2", json={"error": "true", "msg": "nope"})
+    assert cli.main(["auth", "status"]) == 77
+    captured = capsys.readouterr()
+    assert captured.out.strip() == ""
+    assert "rejected" in captured.err

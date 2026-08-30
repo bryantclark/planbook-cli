@@ -128,7 +128,13 @@ def update_unit(
     blanks the description, dates and all six section texts. Read-modify-write,
     the same as a lesson.
     """
-    existing = find_unit(client, unit_id=unit_id) or {}
+    existing = find_unit(client, unit_id=unit_id)
+    if existing is None:
+        raise ApiError(
+            f"No unit with id {unit_id}. Without the current record an update "
+            "would blank the description, dates and section texts it does not "
+            "restate."
+        )
     sections = {
         n: str(existing.get(field) or "")
         for n, field in enumerate(

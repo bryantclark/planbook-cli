@@ -948,3 +948,11 @@ def test_update_todo_raises_on_a_missing_id_instead_of_blanking():
     responses.post(f"{API_BASE}/getToDos", json={"toDos": []})
     with pytest.raises(ApiError):
         api.update_todo(PlanbookClient("t.t.t"), todo_id=999, text="x")
+
+
+@responses.activate
+def test_update_unit_raises_on_a_missing_id_instead_of_blanking():
+    # Same guard as update_todo: an unknown id must not write blank fields.
+    responses.post(f"{API_BASE}/getUnits", json={"units": []})
+    with pytest.raises(ApiError):
+        api.update_unit(PlanbookClient("t.t.t"), unit_id=999, class_id=1, title="X")

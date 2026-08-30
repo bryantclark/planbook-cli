@@ -33,7 +33,11 @@ def teacher_id_from(args: argparse.Namespace) -> Any:
         config.load_session()
     ).get("account_id")
     if not teacher_id:
-        classes = client_from(args).post("/getClasses2").get("classes") or []
+        client = client_from(args)
+        body = client.require(
+            client.post("/getClasses2"), "classes", where="getClasses2"
+        )
+        classes = body.get("classes") or []
         teacher_id = next(
             (c.get("teacherId") for c in classes if c.get("teacherId")), None
         )
@@ -48,7 +52,11 @@ def year_id_from(args: argparse.Namespace) -> Any:
         config.load_session()
     ).get("year_id")
     if not year_id:
-        year_id = client_from(args).post("/getClasses2").get("currentYearId")
+        client = client_from(args)
+        body = client.require(
+            client.post("/getClasses2"), "currentYearId", where="getClasses2"
+        )
+        year_id = body.get("currentYearId")
     if not year_id:
         raise UsageError("Could not determine a year id; pass --year-id.")
     return year_id

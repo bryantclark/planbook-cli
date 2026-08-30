@@ -190,14 +190,13 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
     try:
         body = api.list_classes(client)
     except PlanbookError as exc:
-        # This command exists to answer "am I signed in?", so it answers even
-        # when the probe fails. A token the server has stopped honouring does
-        # not reliably come back as notLoggedIn - one answered "date must not
-        # be null" - so any failure here means the session is unusable.
-        status["authenticated"] = False
-        status["reason"] = str(exc)
-        emit(status)
-        raise NotAuthenticated("The stored token was rejected." + SIGN_IN_HELP) from exc
+        # The probe failed, so the session is unusable - a token the server has
+        # stopped honouring does not reliably come back as notLoggedIn (one
+        # answered "date must not be null"). Keep stdout empty on failure per
+        # the output contract; the reason and remedy go to stderr via the error.
+        raise NotAuthenticated(
+            f"The stored token was rejected: {exc}" + SIGN_IN_HELP
+        ) from exc
     emit(
         {
             **status,

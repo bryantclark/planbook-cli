@@ -746,6 +746,11 @@ def test_parse_date_rejects_what_the_server_answers_with_a_null_pointer():
     # An impossible date used to reach Planbook, which replied with a Java NPE
     # about Schedule.getScheduleStart() - an API error, not a usage error.
     assert api.parse_date("09/03/2026") == "09/03/2026"
+    # Zero-padded so it matches the server's format on find_lesson's exact
+    # string compare; an unpadded date used to miss the saved lesson and blank
+    # it on write.
+    assert api.parse_date("9/3/2026") == "09/03/2026"
+    assert api.parse_date("12/1/2026") == "12/01/2026"
     for bad in ("13/45/2026", "notadate", "2026-09-03", "09/31/2026", "9/3/26"):
         with pytest.raises(UsageError):
             api.parse_date(bad)

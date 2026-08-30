@@ -18,6 +18,7 @@ import requests
 
 from . import __version__, api, browser_cookies
 from .errors import PlanbookError, UsageError
+from .wire import parse_date
 
 
 class _Parser(argparse.ArgumentParser):
@@ -27,6 +28,18 @@ class _Parser(argparse.ArgumentParser):
         self.print_usage(sys.stderr)
         print(f"error: {message}", file=sys.stderr)
         raise SystemExit(UsageError.exit_code)
+
+
+def _date(value: str) -> str:
+    """argparse `type` for MM/DD/YYYY, so a typo never reaches the server.
+
+    Raises ValueError rather than UsageError because argparse catches that and
+    routes it through _Parser.error, which already exits 64.
+    """
+    try:
+        return parse_date(value)
+    except UsageError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -173,8 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_classes_list)
     c = s_cls.add_parser("create", help="create a class")
     c.add_argument("--name", required=True)
-    c.add_argument("--start", required=True, metavar="MM/DD/YYYY")
-    c.add_argument("--end", required=True, metavar="MM/DD/YYYY")
+    c.add_argument("--start", required=True, metavar="MM/DD/YYYY", type=_date)
+    c.add_argument("--end", required=True, metavar="MM/DD/YYYY", type=_date)
     c.add_argument(
         "--days", default="MTWRF", help="days taught, e.g. MTWRF (R=Thursday, U=Sunday)"
     )
@@ -202,8 +215,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     c.add_argument("--class-id", dest="class_id", required=True)
     c.add_argument("--name")
-    c.add_argument("--start", metavar="MM/DD/YYYY")
-    c.add_argument("--end", metavar="MM/DD/YYYY")
+    c.add_argument("--start", metavar="MM/DD/YYYY", type=_date)
+    c.add_argument("--end", metavar="MM/DD/YYYY", type=_date)
     c.add_argument("--days", help="replaces the schedule, e.g. MTWRF")
     c.add_argument("--color")
     c.add_argument("--description")
@@ -233,7 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
         "set", help="create or update one lesson (upsert by class+date)"
     )
     sub_lesson.add_argument("--class-id", dest="class_id", required=True)
-    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     sub_lesson.add_argument("--title")
     sub_lesson.add_argument("--text", help="lesson body; HTML is accepted")
     sub_lesson.add_argument("--homework")
@@ -302,17 +315,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub_lesson.set_defaults(func=cmd_lessons_sections)
     sub_lesson = s_les.add_parser("get", help="read one saved lesson")
     sub_lesson.add_argument("--class-id", dest="class_id", required=True)
-    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     sub_lesson.set_defaults(func=cmd_lessons_get)
     sub_lesson = s_les.add_parser("delete", help="clear the lesson on one date")
     sub_lesson.add_argument("--class-id", dest="class_id", required=True)
-    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     sub_lesson.add_argument("--dry-run", action="store_true")
     sub_lesson.set_defaults(func=cmd_lessons_delete)
     sub_lesson = s_les.add_parser(
         "week", help="fetch a week of lessons and events (partial mapping)"
     )
-    sub_lesson.add_argument("--monday", required=True, metavar="MM/DD/YYYY")
+    sub_lesson.add_argument("--monday", required=True, metavar="MM/DD/YYYY", type=_date)
     sub_lesson.add_argument("--weeks", type=int, default=1)
     sub_lesson.add_argument(
         "--all", action="store_true", help="include days with no saved lesson"
@@ -346,8 +359,10 @@ def build_parser() -> argparse.ArgumentParser:
         if verb == "update":
             t.add_argument("--todo-id", dest="todo_id", required=True)
         t.add_argument("--text", required=True, help="HTML accepted")
-        t.add_argument("--start", required=True, metavar="MM/DD/YYYY")
-        t.add_argument("--due", metavar="MM/DD/YYYY", help="defaults to --start")
+        t.add_argument("--start", required=True, metavar="MM/DD/YYYY", type=_date)
+        t.add_argument(
+            "--due", metavar="MM/DD/YYYY", type=_date, help="defaults to --start"
+        )
         t.add_argument("--priority", choices=["low", "medium", "high"], default="low")
         t.add_argument("--done", action="store_true")
         t.add_argument("--repeats", default="daily")
@@ -369,8 +384,8 @@ def build_parser() -> argparse.ArgumentParser:
         u.add_argument("--number", required=True, help="unit number, e.g. U1")
         u.add_argument("--title", required=True)
         u.add_argument("--description")
-        u.add_argument("--start", metavar="MM/DD/YYYY")
-        u.add_argument("--end", metavar="MM/DD/YYYY")
+        u.add_argument("--start", metavar="MM/DD/YYYY", type=_date)
+        u.add_argument("--end", metavar="MM/DD/YYYY", type=_date)
         u.add_argument("--dry-run", action="store_true")
         u.set_defaults(func=fn)
     u = s_un.add_parser("delete", help="delete a unit")
@@ -382,16 +397,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_ev = sub.add_parser("events", help="list, create and delete calendar events")
     s_ev = p_ev.add_subparsers(dest="events_command", required=True)
     e = s_ev.add_parser("list", help="list events")
-    e.add_argument("--start", metavar="MM/DD/YYYY")
-    e.add_argument("--end", metavar="MM/DD/YYYY")
+    e.add_argument("--start", metavar="MM/DD/YYYY", type=_date)
+    e.add_argument("--end", metavar="MM/DD/YYYY", type=_date)
     e.add_argument("--limit", type=int, default=75)
     e.add_argument("--search")
     e.set_defaults(func=cmd_events_list)
     e = s_ev.add_parser("create", help="create an event")
     e.add_argument("--title", required=True)
-    e.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    e.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     e.add_argument(
-        "--end-date", dest="end_date", metavar="MM/DD/YYYY", help="defaults to --date"
+        "--end-date",
+        dest="end_date",
+        metavar="MM/DD/YYYY",
+        type=_date,
+        help="defaults to --date",
     )
     e.add_argument("--text", help="description; HTML accepted")
     e.add_argument("--start-time", dest="start_time")
@@ -446,7 +465,7 @@ def build_parser() -> argparse.ArgumentParser:
         st.add_argument("--email")
         st.add_argument("--parent-email", dest="parent_email")
         st.add_argument("--phone")
-        st.add_argument("--birthdate", metavar="MM/DD/YYYY")
+        st.add_argument("--birthdate", metavar="MM/DD/YYYY", type=_date)
         st.set_defaults(func=fn)
     st = s_st.add_parser("delete", help="delete a student")
     st.add_argument("--student-id", dest="student_id", required=True)
@@ -454,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("attendance", help="read attendance for a class on a date")
     p.add_argument("--class-id", dest="class_id", required=True)
-    p.add_argument("--date", required=True, metavar="MM/DD/YYYY")
+    p.add_argument("--date", required=True, metavar="MM/DD/YYYY", type=_date)
     p.set_defaults(func=cmd_attendance)
 
     p = sub.add_parser("grades", help="grade periods and scored assignments")

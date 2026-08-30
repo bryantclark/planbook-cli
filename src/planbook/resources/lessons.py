@@ -10,7 +10,7 @@ from typing import Any
 
 from ..client import PlanbookClient
 from ..errors import SchemaDrift, UsageError
-from ..wire import Payload, intish, yn
+from ..wire import Payload, intish, parse_date, yn
 from .misc import list_assignments, settings
 
 
@@ -184,7 +184,8 @@ def lesson_payload(
 
     payload: dict[str, Any] = {
         "classId": intish(class_id),
-        "customDate": date,
+        # Checked here rather than only in argparse so bulk items get it too.
+        "customDate": parse_date(date),
         "unitId": intish(unit_id),
         "extraLesson": "0",
         "lessonId": "0",

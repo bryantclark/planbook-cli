@@ -698,3 +698,18 @@ def test_set_lesson_carries_over_unit_sections_and_flags():
     assert sent["unitId"] == "42"
     assert sent["lessonLock"] == "Y"
     assert sent["tab4Text"] == "<p>objectives</p>"
+
+
+def test_parse_date_rejects_what_the_server_answers_with_a_null_pointer():
+    # An impossible date used to reach Planbook, which replied with a Java NPE
+    # about Schedule.getScheduleStart() - an API error, not a usage error.
+    assert api.parse_date("09/03/2026") == "09/03/2026"
+    for bad in ("13/45/2026", "notadate", "2026-09-03", "09/31/2026", "9/3/26"):
+        with pytest.raises(UsageError):
+            api.parse_date(bad)
+
+
+def test_lesson_payload_validates_the_date():
+    # Bulk items never pass through argparse, so the check lives here too.
+    with pytest.raises(UsageError):
+        api.lesson_payload(class_id=1, date="13/45/2026", title="T")

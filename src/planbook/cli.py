@@ -109,7 +109,6 @@ def build_parser() -> argparse.ArgumentParser:
     a = s_auth.add_parser("login", help="sign in with email and password (prompts)")
     a.add_argument("--username", help="email or user ID; prompted for if omitted")
     a.set_defaults(func=cmd_auth_login)
-    # "cookie" kept as an alias: it is in older docs and in muscle memory.
     a = s_auth.add_parser(
         "import", help="read the token from a browser you are signed in to"
     )
@@ -119,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="which browser to read; defaults to yours, then the rest",
     )
     a.set_defaults(func=cmd_auth_import)
+    # "cookie" kept as an alias: it is in older docs and in muscle memory.
     a = s_auth.add_parser(
         "token",
         aliases=["cookie"],

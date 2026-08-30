@@ -71,6 +71,3 @@ def cmd_raw(args: argparse.Namespace) -> None:
         emit(client.post_json(args.path, dict(payload)))
     else:
         emit(client.post(args.path, payload))
-
-
-# --------------------------------------------------------------------------

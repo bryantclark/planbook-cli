@@ -352,11 +352,10 @@ def set_lesson(
 
 
 def get_week(client: PlanbookClient, *, monday: str, weeks: int = 1) -> Any:
-    """Fetch lessons and events starting from a Monday.
+    """The undecoded `/getLessonsEvents` body for a week starting on a Monday.
 
-    Only partially mapped - `days` is keyed by integer offset, not date, and
-    the lesson payload inside is undecoded. Output is passed through raw.
-    See docs/API-NOTES.md ("Open").
+    Backs `lessons week --raw`. `read_week` is the decoded form; this keeps
+    the fields it drops.
     """
     return client.post(
         "/getLessonsEvents",

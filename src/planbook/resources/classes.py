@@ -65,7 +65,6 @@ def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]
     }
 
 
-# Weekday order for the *_Teach form fields.
 def class_payload(
     *,
     name: str,

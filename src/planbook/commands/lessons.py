@@ -175,9 +175,9 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
         _require_class_id(item, args, index)
-        # Build every payload up front. It is pure, and it is where value
-        # errors live (an unknown section, a bad standard id),
-        # which SKILL.md promises cannot half-apply a week.
+        # Build every payload up front: it is pure, and it is what rejects an
+        # item with nothing to write. SKILL.md promises a bad item cannot
+        # half-apply a week, so that has to fail before the first send.
         api.lesson_payload(
             class_id=_require_class_id(item, args, index),
             date=item["date"],

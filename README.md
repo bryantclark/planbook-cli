@@ -39,10 +39,12 @@ planbook lessons set --class-id 12345678 --date 09/03/2026 \
 
 ## Authentication
 
-- **`auth import`** (recommended) — reads the token from your browser. On macOS, approve the Keychain prompt (**Always Allow**).
-- **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output.
-- **`auth login`** — username/password for Planbook-native accounts. Untested; the maintainer's account uses SSO.
-- **`auth browser`** — not recommended; identity providers refuse automated browsers.
+- **`auth import`** (recommended) — reads the token from a browser you are already signed in to. On macOS, approve the Keychain prompt (**Always Allow**).
+- **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output. The fallback when the cookie store cannot be read (Safari without Full Disk Access).
+
+Nothing here is how this should work. Both paths carry an existing full-account
+token, and neither has scopes, consent, or revocation. See
+[docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
 
 Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` overrides for CI.
 

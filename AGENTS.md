@@ -57,7 +57,7 @@ Run `planbook <group> --help` for exact flags.
 
 | group | subcommands |
 |---|---|
-| `auth` | `status`, `import`, `token`, `browser`, `login`, `logout` |
+| `auth` | `status`, `import`, `token`, `logout` |
 | `classes` | `list`, `get`, `create`, `update`, `delete` |
 | `lessons` | `set`, `bulk`, `get`, `delete`, `week`, `sections` |
 | `units` | `list`, `create`, `update`, `delete` |
@@ -90,8 +90,7 @@ succeeds if a browser or the stored session holds a usable token, and exits 64 i
 neither does. A Keychain
 prompt can still block it.
 
-`auth browser`, `auth login`, and `auth token` need a human. Never run them
-unattended.
+`auth token` needs a human. Never run it unattended.
 
 **Tokens last about 22 hours (1 hour for auth-server tokens).** On exit 77,
 stderr already contains the remedy. Show it verbatim.

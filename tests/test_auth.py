@@ -1,42 +1,4 @@
 import pytest
-import responses
-
-from planbook import auth
-from planbook.client import API_BASE, AUTH_BASE
-from planbook.errors import LoginFailed
-
-
-def test_csrf_token_extracts_hidden_input_value():
-    html = """
-    <html><body>
-      <form><input type="hidden" name="_csrf" value="token-123"></form>
-    </body></html>
-    """
-    assert auth._csrf_token(html) == "token-123"
-
-
-def test_csrf_token_raises_when_missing():
-    with pytest.raises(LoginFailed):
-        auth._csrf_token("<html><form></form></html>")
-
-
-@responses.activate
-def test_login_mentions_sso_when_no_candidate_session_cookie_works():
-    responses.get(
-        f"{AUTH_BASE}/login",
-        body='<input type="hidden" name="_csrf" value="csrf-1">',
-        headers={"Set-Cookie": "SESSION=pre-auth; Path=/; Domain=.planbook.com"},
-    )
-    responses.post(
-        f"{AUTH_BASE}/login",
-        body="<html>login response</html>",
-        headers={"Set-Cookie": "SESSION=post-auth; Path=/; Domain=.planbook.com"},
-    )
-    responses.post(f"{API_BASE}/getClasses2", json={"notLoggedIn": "true"})
-    responses.post(f"{API_BASE}/getClasses2", json={"notLoggedIn": "true"})
-
-    with pytest.raises(LoginFailed, match="SSO"):
-        auth.login("teacher@example.com", "bad-password")
 
 
 def test_cookie_read_is_time_bounded(monkeypatch):
@@ -65,3 +27,28 @@ def test_diagnose_names_a_timeout(monkeypatch):
     monkeypatch.setattr(bc, "tokens_from", _boom)
     report = bc.diagnose()
     assert all("timed out" in v for v in report.values())
+
+
+def test_import_skips_a_browser_token_the_api_rejects(monkeypatch):
+    # A rejected token does not always say notLoggedIn - one answered "date
+    # must not be null" - so any probe failure must disqualify the candidate.
+    import argparse
+
+    from planbook import browser_cookies as bc
+    from planbook.commands import auth as cmd
+    from planbook.errors import ApiError
+
+    monkeypatch.setattr(bc, "search", lambda _pref: [("brave", "t.t.t")])
+    monkeypatch.setattr(cmd.pbtoken, "is_expired", lambda _t: False)
+    monkeypatch.setattr(
+        cmd.pbtoken, "describe", lambda _t: {"expires_in_seconds": 3600}
+    )
+
+    def rejected(_client):
+        raise ApiError("date must not be null")
+
+    monkeypatch.setattr(cmd.api, "list_classes", rejected)
+    monkeypatch.setattr(cmd, "PlanbookClient", lambda *a, **k: object())
+
+    args = argparse.Namespace(browser="brave", verbose=False)
+    assert cmd._best_browser_token(args) is None

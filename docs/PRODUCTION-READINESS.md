@@ -25,8 +25,9 @@ if omitted. Most of a client SDK's spec is already there.
 
 ## The blocker: authentication
 
-Today the CLI gets its credential one of two ways: it reads the
-`.accesstoken` JWT out of the browser cookie store of a browser the teacher is
+Two ways in, and that is deliberate — the password login and the automated
+browser both went in the bin. Today the CLI reads
+the `.accesstoken` JWT out of the cookie store of a browser the teacher is
 already signed in to, or the teacher pastes one in by hand. Both send it as
 `Authorization: Bearer`. The token is stored at `~/.config/planbook/token.json`,
 mode 0600, and it expires on its own in about 22 hours.
@@ -164,9 +165,9 @@ student and grade writes entirely.
   token is revoked.
 - New failure modes: insufficient scope, revoked grant, rate limited — each
   with an exit code and a message that says what to do.
-- Delete `auth import`, `auth token`, `auth login`, and `auth browser`, and the
-  browser-cookie dependency with them. This is the point of the whole exercise:
-  no tool should be reading a teacher's cookie store.
+- Delete `auth import` and `auth token`, and the browser-cookie dependency with
+  them. This is the point of the whole exercise: no tool should be reading a
+  teacher's cookie store.
 - Migration: one release where both work and the old paths warn, then a release
   where only OAuth does.
 

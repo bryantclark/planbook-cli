@@ -10,3 +10,4 @@
 ## Auth
 
 - [Import from browser as default auth](decisions/2026-08-28-browser-import-auth.md) — sidesteps Google's automation-browser rejection
+- [One auth path](decisions/2026-08-30-one-auth-path.md) — password login and the automated browser are gone; import, with paste as the fallback

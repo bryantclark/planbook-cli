@@ -11,7 +11,7 @@ import time
 import webbrowser
 from typing import NoReturn
 
-from .. import api, auth, browser_auth, browser_cookies, config
+from .. import api, browser_cookies, config
 from .. import token as pbtoken
 from ..cli_support import emit
 from ..client import PlanbookClient
@@ -22,15 +22,6 @@ from ..errors import (
     PlanbookError,
     UsageError,
 )
-
-
-def cmd_auth_login(args: argparse.Namespace) -> None:
-    username = args.username or input("Email or user ID: ").strip()
-    # Read from the TTY: never logged, never in argv, never stored.
-    password = getpass.getpass("Password: ")
-    cookie = auth.login(username, password)
-    path = config.save_session(cookie, username)
-    emit({"ok": True, "stored": str(path), "username": username})
 
 
 def cmd_auth_token(args: argparse.Namespace) -> None:
@@ -214,35 +205,6 @@ def _no_token_error() -> NoReturn:
         "If a browser above says 'locked', macOS denied Keychain access - rerun "
         "and choose Always Allow.\n"
         "If you would rather not grant that, use `planbook auth token` instead."
-    )
-
-
-def cmd_auth_browser(args: argparse.Namespace) -> None:
-    """Sign in by opening a browser and waiting for the user to do it.
-
-    Discouraged (see README), but kept: it needs no manual copying, and would
-    become the good path if Planbook ever registered an OAuth client.
-    """
-    if args.interactive:
-        value = browser_auth.login_via_browser(
-            timeout=args.timeout, channel=args.channel, profile=args.profile
-        )
-        interactive = True
-    else:
-        value, interactive = browser_auth.refresh_or_login(
-            timeout=args.timeout, channel=args.channel, profile=args.profile
-        )
-    info = pbtoken.describe(value)
-    path = config.save_session(value, info.get("email"))
-    emit(
-        {
-            "ok": True,
-            "stored": str(path),
-            "method": "browser",
-            "interactive": interactive,
-            "email": info.get("email"),
-            "expires_in_hours": info.get("expires_in_hours"),
-        }
     )
 
 

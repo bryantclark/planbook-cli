@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 from typing import NoReturn
 
 import requests
@@ -44,9 +43,7 @@ def _date(value: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     from .commands.auth import (
-        cmd_auth_browser,
         cmd_auth_import,
-        cmd_auth_login,
         cmd_auth_logout,
         cmd_auth_status,
         cmd_auth_token,
@@ -119,9 +116,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_auth = sub.add_parser("auth", help="sign in and inspect the stored session")
     s_auth = p_auth.add_subparsers(dest="auth_command", required=True)
-    a = s_auth.add_parser("login", help="sign in with email and password (prompts)")
-    a.add_argument("--username", help="email or user ID; prompted for if omitted")
-    a.set_defaults(func=cmd_auth_login)
     a = s_auth.add_parser(
         "import", help="read the token from a browser you are signed in to"
     )
@@ -161,31 +155,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="store without checking the token against the API",
     )
     a.set_defaults(func=cmd_auth_token)
-    a = s_auth.add_parser(
-        "browser", help="sign in by opening a browser (works with Google and other SSO)"
-    )
-    a.add_argument(
-        "--timeout",
-        type=int,
-        default=300,
-        help="seconds to wait for sign-in (default 300)",
-    )
-    a.add_argument(
-        "--channel",
-        choices=["chrome", "msedge", "chromium"],
-        help="which browser to launch; tries chrome, then edge, then chromium",
-    )
-    a.add_argument(
-        "--profile",
-        type=Path,
-        help="browser profile directory (default: alongside the session file)",
-    )
-    a.add_argument(
-        "--interactive",
-        action="store_true",
-        help="always open a window; skip the silent refresh attempt",
-    )
-    a.set_defaults(func=cmd_auth_browser)
     a = s_auth.add_parser("status", help="verify the stored session works")
     a.set_defaults(func=cmd_auth_status)
     a = s_auth.add_parser("logout", help="delete the stored session")
@@ -623,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: could not reach Planbook: {exc}", file=sys.stderr)
         return PlanbookError.exit_code
     except EOFError:
-        # A prompt (auth login) with nothing on stdin - CI, a pipe. The
+        # A prompt (auth token) with nothing on stdin - CI, a pipe. The
         # contract is an exit code, not a traceback.
         print("error: no input available for a prompt.", file=sys.stderr)
         return UsageError.exit_code

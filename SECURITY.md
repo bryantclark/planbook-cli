@@ -22,8 +22,8 @@ exploitable detail about their platform.
 - It is sent to `api.planbook.com` over HTTPS as `Authorization: Bearer`, and
   nowhere else. There is no telemetry, no analytics, and no other network
   destination in this codebase.
-- Passwords, when `auth login` is used, are read from the terminal. They are
-  never written to disk, never placed in `argv`, and never logged.
+- This tool never asks for your Planbook password. There is no password path in
+  it at all.
 - `--verbose` logs request URLs and field *names* to stderr. It does not log
   the token or field values.
 - `auth logout` deletes the stored token.

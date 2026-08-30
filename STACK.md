@@ -16,7 +16,6 @@ over `httpx` because every call is serial by design — async adds nothing. `bro
 reads browser cookie stores, so `auth import` needs no manual paste. `hatchling` builds the wheel;
 `ruff` formats and lints; `mypy --strict` type-checks.
 
-Optional `playwright` dependency powers `auth browser` (headed sign-in). Not installed
 by default because most users authenticate through `auth import`.
 
 ## Common commands

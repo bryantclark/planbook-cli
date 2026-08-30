@@ -28,8 +28,8 @@ def _import_bc() -> Any:
         import browser_cookie3
     except ImportError as exc:
         raise LoginFailed(
-            "Reading browser cookies needs browser-cookie3:\n"
-            "  pip install 'planbook-cli[local]'"
+            "Reading browser cookies needs browser-cookie3, which ships "
+            "as a dependency of this package. Reinstall planbook-cli."
         ) from exc
     return browser_cookie3
 

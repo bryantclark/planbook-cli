@@ -30,7 +30,6 @@ from .wire import intish as intish
 from .wire import yn as yn
 
 API_BASE = "https://api.planbook.com"
-AUTH_BASE = "https://auth.planbook.com"
 
 # Honest identification: the ToS forbids disguising origin, and nothing here
 # needs to look like a browser.
@@ -127,9 +126,8 @@ class PlanbookClient:
     def _check(self, resp: requests.Response, url: str) -> Any:
         if resp.status_code == 405 and "awswaf" in resp.text.lower():
             raise SchemaDrift(
-                f"{url} answered with an AWS WAF challenge. The API host is not "
-                "normally behind the WAF - if this persists, Planbook has changed "
-                "its edge configuration and this tool cannot proceed."
+                f"{url} answered with an AWS WAF challenge. Planbook has "
+                "changed its edge configuration; this tool cannot proceed."
             )
         if resp.status_code >= 500:
             raise ApiError(f"{url} returned HTTP {resp.status_code}")

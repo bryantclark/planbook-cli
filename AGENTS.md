@@ -57,7 +57,7 @@ Run `planbook <group> --help` for exact flags.
 
 | group | subcommands |
 |---|---|
-| `auth` | `status`, `import`, `token`, `browser`, `login`, `logout` |
+| `auth` | `status`, `import`, `token`, `logout` |
 | `classes` | `list`, `get`, `create`, `update`, `delete` |
 | `lessons` | `set`, `bulk`, `get`, `delete`, `week`, `sections` |
 | `units` | `list`, `create`, `update`, `delete` |
@@ -86,12 +86,10 @@ update` needs `--class-id` as well as `--student-id`.
 
 `auth status` and `auth import` are safe unattended. `auth import` may raise a
 macOS Keychain prompt. Without a TTY it never waits for you to sign in: it
-succeeds if a browser or the stored session holds a usable token, and exits 64 if
-neither does. A Keychain
-prompt can still block it.
+succeeds if a browser or the stored session holds a usable token, and exits 64
+if neither does. A Keychain prompt can still block it.
 
-`auth browser`, `auth login`, and `auth token` need a human. Never run them
-unattended.
+`auth token` needs a human. Never run it unattended.
 
 **Tokens last about 22 hours (1 hour for auth-server tokens).** On exit 77,
 stderr already contains the remedy. Show it verbatim.
@@ -135,7 +133,7 @@ Confirm with the user before running any of these:
 - `grades` and `attendance` are read-only.
 - Seating charts, lesson banks, messages, and reporting are not mapped.
 - `filterNotes` is blocked on an unknown parameter.
-- Signing in needs a human at the keyboard: `auth browser`, `auth login`, `auth token`. `auth status` and `auth import` then run unattended.
+- Signing in needs a human at the keyboard: `auth token`, and the Keychain prompt behind `auth import`. `auth status` then runs unattended.
 
 ## Safety
 

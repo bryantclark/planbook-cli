@@ -9,7 +9,6 @@ dependencies = ["requests>=2.31", "browser-cookie3>=0.19"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "responses>=0.25", "ruff>=0.6", "mypy>=1.11",
        "types-requests"]
-browser = ["playwright>=1.40"]
 
 [project.scripts]
 planbook = "planbook.cli:main"
@@ -46,5 +45,5 @@ warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr"]
 
 [[tool.mypy.overrides]]
-module = ["browser_cookie3.*", "playwright.*"]
+module = ["browser_cookie3.*"]
 ignore_missing_imports = true

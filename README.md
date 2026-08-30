@@ -3,8 +3,9 @@
 Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
 plans through the private API that the web app uses.
 
-No published API exists. See [docs/API-NOTES.md](docs/API-NOTES.md) for how the
-endpoints were mapped, and [docs/RECON.md](docs/RECON.md) for how to add more.
+Built against the web app's API — no published API exists yet. See
+[docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details and
+[docs/RECON.md](docs/RECON.md) for how to map more.
 [AGENTS.md](AGENTS.md) is the agent-facing command reference.
 
 ## Status
@@ -67,7 +68,7 @@ Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` ove
 
 ## Caveats
 
-- The API is undocumented and can change. See [docs/API-NOTES.md](docs/API-NOTES.md).
+- No published API exists yet; endpoints may change. See [docs/API-NOTES.md](docs/API-NOTES.md).
 - `app.planbook.com` is behind AWS WAF; `api.planbook.com` is not.
 - Requests are serialized. No parallelism.
 - Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and discretionary termination.

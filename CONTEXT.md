@@ -3,8 +3,8 @@
 ## What this project is
 
 A CLI that wraps Planbook.com's private API so agents and people can read and write
-lesson plans from the terminal. Planbook publishes no API and no CLI — this tool
-reverse-engineered the endpoints the web app uses.
+lesson plans from the terminal. No published API exists yet — this tool was built
+against the endpoints the web app uses.
 
 ## Core entities
 

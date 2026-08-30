@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import os
 import sys
+import time
+import webbrowser
+from typing import NoReturn
 
 from .. import api, auth, browser_auth, browser_cookies, config
 from .. import token as pbtoken
 from ..cli_support import emit
 from ..client import PlanbookClient
-from ..errors import SIGN_IN_HELP, NotAuthenticated, PlanbookError, UsageError
+from ..errors import (
+    SIGN_IN_HELP,
+    SIGN_IN_URL,
+    NotAuthenticated,
+    PlanbookError,
+    UsageError,
+)
 
 
 def cmd_auth_login(args: argparse.Namespace) -> None:
@@ -63,44 +73,63 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_auth_import(args: argparse.Namespace) -> None:
-    """Read the access token from a browser the user is already signed in to.
+def _best_browser_token(args: argparse.Namespace) -> tuple[int, str, str] | None:
+    """The longest-lived usable token across local browsers, or None.
 
-    The recommended path: nothing is automated and nothing is copied by hand.
+    Auth-server tokens last about an hour, so a browser signed in earlier can
+    hold a nearly-dead token while another holds a fresh one; take the freshest.
     """
-    from ..default_browser import default_browser_name
-
+    best: tuple[int, str, str] | None = None
     preferred = args.browser
     if not preferred:
+        from ..default_browser import default_browser_name
+
         name = default_browser_name()
         if name:
             preferred = name.split()[0].lower()
+    for browser, candidate in browser_cookies.search(preferred):
+        if pbtoken.is_expired(candidate):
+            continue
+        remaining = pbtoken.describe(candidate).get("expires_in_seconds") or 0
+        if best is not None and remaining <= best[0]:
+            continue
+        try:
+            api.list_classes(PlanbookClient(candidate, verbose=args.verbose))
+        except PlanbookError:
+            # Not usable. A rejected token does not always say notLoggedIn -
+            # one answered "date must not be null" - so any failure disqualifies.
+            continue
+        best = (remaining, browser, candidate)
+    return best
 
+
+def _store_token(browser: str, token: str) -> None:
+    info = pbtoken.describe(token)
+    path = config.save_session(token, info.get("email"))
+    emit(
+        {
+            "ok": True,
+            "stored": str(path),
+            "source": browser,
+            "email": info.get("email"),
+            "expires_in_hours": info.get("expires_in_hours"),
+        }
+    )
+
+
+def cmd_auth_import(args: argparse.Namespace) -> None:
+    """Read the access token from a browser you are already signed in to.
+
+    The recommended path: nothing is automated and nothing is copied by hand.
+    When run in a terminal and no token is found, it opens the Planbook sign-in
+    page and waits for you to sign in, then grabs the token - no second command.
+    """
     print(
         "Reading browser cookies. macOS may raise a Keychain prompt - approve "
         "it to continue (choose Always Allow to skip it next time).",
         file=sys.stderr,
     )
-    # Take the longest-lived token, not the first that answers. Auth-server
-    # tokens last an hour, so a browser signed in earlier can easily hold a
-    # nearly-dead one while another holds a fresh one.
-    best: tuple[int, str, str] | None = None
-    for browser, candidate in browser_cookies.search(preferred):
-        if pbtoken.is_expired(candidate):
-            continue
-        info = pbtoken.describe(candidate)
-        remaining = info.get("expires_in_seconds") or 0
-        if best is not None and remaining <= best[0]:
-            continue
-        client = PlanbookClient(candidate, verbose=args.verbose)
-        try:
-            api.list_classes(client)
-        except PlanbookError:
-            # Any failure means this cookie is not usable. A token the server
-            # has stopped honouring does not always come back as notLoggedIn:
-            # one rejected here answered "date must not be null" instead.
-            continue
-        best = (remaining, browser, candidate)
+    best = _best_browser_token(args)
 
     # Never trade down: an already-stored session may outlive every cookie.
     stored = config.load_session_or_none()
@@ -121,23 +150,64 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
 
     if best is not None:
         _remaining, browser, candidate = best
-        info = pbtoken.describe(candidate)
-        path = config.save_session(candidate, info.get("email"))
-        emit(
-            {
-                "ok": True,
-                "stored": str(path),
-                "source": browser,
-                "email": info.get("email"),
-                "expires_in_hours": info.get("expires_in_hours"),
-            }
-        )
+        _store_token(browser, candidate)
         return
 
+    # Nothing found. In a terminal, guide the sign-in instead of failing: open
+    # the page and poll until a token shows up. Agents and CI (no TTY) get the
+    # old typed error, never a hang.
+    interactive = sys.stdin.isatty() and sys.stderr.isatty() and not args.no_wait
+    if interactive:
+        _guided_sign_in(args)
+        return
+
+    _no_token_error()
+
+
+def _guided_sign_in(args: argparse.Namespace) -> None:
+    # No point opening a browser and polling a cookie store this tool cannot
+    # read. Safari on macOS is the common case - blocked without Full Disk
+    # Access - so say so and point to a store that works.
+    if not browser_cookies.any_store_readable():
+        raise UsageError(
+            "This tool reads the sign-in token from your browser's cookie "
+            "store, and none it can read is available here.\n"
+            "Safari's store is blocked on macOS without Full Disk Access, so "
+            "the easy paths are:\n"
+            "  - sign in with Chrome, Brave, Edge, Vivaldi, Opera or Firefox, "
+            "then rerun `planbook auth import`, or\n"
+            "  - paste a token once with `planbook auth token` (works from any "
+            "browser)."
+        )
+    print(
+        f"\nNot signed in yet. Opening {SIGN_IN_URL} in your browser.\n"
+        "Sign in there (normal window, your usual Google login), then come "
+        "back here - this will pick up automatically.\n"
+        "Use Chrome, Brave, Edge, Vivaldi, Opera or Firefox - Safari's cookies "
+        "cannot be read without Full Disk Access.",
+        file=sys.stderr,
+    )
+    with contextlib.suppress(Exception):
+        webbrowser.open(SIGN_IN_URL)
+
+    deadline = time.monotonic() + args.wait_timeout
+    while time.monotonic() < deadline:
+        time.sleep(3)
+        best = _best_browser_token(args)
+        if best is not None:
+            _remaining, browser, candidate = best
+            print("Got it.", file=sys.stderr)
+            _store_token(browser, candidate)
+            return
+        left = int(deadline - time.monotonic())
+        print(f"  waiting for sign-in... {left}s left", file=sys.stderr)
+
+    _no_token_error()
+
+
+def _no_token_error() -> NoReturn:
     report = browser_cookies.diagnose()
     lines = "\n".join(f"  {b:8} {status}" for b, status in report.items())
-    from ..errors import SIGN_IN_URL
-
     raise UsageError(
         "No usable Planbook token found in any local browser.\n" + lines + "\n\n"
         f"Sign in at {SIGN_IN_URL} first, then run `planbook auth import` again.\n"

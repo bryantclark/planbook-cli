@@ -79,7 +79,10 @@ in. Do not try to sign in yourself.
 
 `auth import` is safe to try once on exit 77: it reads the token from a browser the
 user is already signed in to. It may raise a macOS Keychain prompt the user has to
-approve, and it fails cleanly if no browser holds a usable token.
+approve, and it fails cleanly (exit 64) if no browser holds a usable token. In a
+real terminal it will instead open the sign-in page and wait for the user; running
+it without a TTY (as an agent does) skips that and returns the typed error, so it
+never hangs. Pass `--no-wait` to force fail-fast even in a terminal.
 
 `auth browser`, `auth login` and `auth token` all need a human - `browser` opens a
 window and waits, the other two prompt on a TTY. Never run them unattended. There is

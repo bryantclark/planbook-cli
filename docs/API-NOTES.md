@@ -1,69 +1,55 @@
-# Planbook private API — recon notes
+# Planbook API notes
 
-Reverse-engineered 2026-08-28 from a live session. Undocumented; can change without notice.
+Mapped 2026-08-28 by observing the web app's network traffic. No published API
+docs exist; endpoints can change without notice.
 
 ## Hosts
 
-| host | what it is |
+| host | notes |
 |---|---|
-| `app.planbook.com` | Vue SPA. **Behind AWS WAF** — returns a "Human Verification" challenge (HTTP 405) to any non-browser client, including static `/js/*` assets. Do not script this host. |
-| `api.planbook.com` | **The API. No WAF.** Plain curl works. Root path serves marketing HTML, which is why it looks like a dead end. |
+| `app.planbook.com` | Vue SPA. Behind AWS WAF — returns 405 to non-browser clients. Don't script this host. |
+| `api.planbook.com` | The API. No WAF. Root path serves marketing HTML (looks like a dead end; it isn't). |
 | `auth.planbook.com` | Login. No WAF. SSO: Google, Microsoft, Clever, ClassLink, Apple. |
 
 ## Auth
 
 **The credential is a JWT, not the `SESSION` cookie.**
 
-The browser carries it as a cookie named `U|<view-id>|.accesstoken`. The server also
-accepts it as `Authorization: Bearer <jwt>`, which is what this CLI sends - verified
-working with no cookies at all.
+The browser carries it as `U|<view-id>|.accesstoken`. The server also accepts
+`Authorization: Bearer <jwt>` with no cookies.
 
-`SESSION` is a decoy for anyone mapping this by hand: `api.planbook.com` issues one
-to *unauthenticated* callers too, so DevTools shows a plausible `SESSION` next to the
-real credential, and sending it alone returns `{"notLoggedIn":"true"}`.
+`SESSION` is a decoy: `api.planbook.com` issues one to unauthenticated callers
+too. Sending it alone returns `{"notLoggedIn":"true"}`.
 
 Established by testing:
 
-- `Authorization: Bearer <jwt>` alone authenticates. No cookie needed.
-- The `<view-id>` in the cookie name is **not validated** - any non-empty value
-  works - but the name must end in `.accesstoken`.
-- The `x-pb-*` headers the web app sends are **not required**.
-- **Two issuers are in circulation and they nest identity differently.** The older
-  payload double-encodes: `sub` is a JSON *string* holding
-  `{id, yearId, key, type, email, code, generic, legacy}`. Tokens from
-  `auth.planbook.com` instead put the same data under a namespaced claim
-  `https://planbook.com/claims`, and spell the year **`yearid`**, lowercase d.
-  Both carry a top-level `exp`. A parser that knows only one shape reads every
-  identity field as null and fails wherever a teacher or year id is needed -
-  which is exactly how `templates`, `attachments` and `schedule special-days`
-  broke. `token.identity()` flattens both.
-- The auth-server token is also **shorter lived**: `exp - iat` is 1 hour, against
-  about 22 for the older one.
-- **Lifetime is 22 hours for the legacy token, 1 hour from the auth server.** No rotation on normal calls, and no refresh
-  endpoint - `/refreshToken`, `/services/api/refresh-token`,
-  `/services/api/token/refresh` and `/services/planbook/refreshToken` all 404.
+- `Authorization: Bearer <jwt>` alone authenticates.
+- The `<view-id>` in the cookie name is not validated — any non-empty value works — but the name must end in `.accesstoken`.
+- The `x-pb-*` headers the web app sends are not required.
+- **Two issuers, different identity shapes.** The older payload double-encodes: `sub` is a JSON string with `{id, yearId, key, type, email, code, generic, legacy}`. Auth-server tokens put the same data under `https://planbook.com/claims` and spell the year `yearid` (lowercase d). `token.identity()` flattens both.
+- Auth-server tokens live **1 hour**; legacy tokens live **~22 hours**.
+- No refresh endpoint. Tested `/refreshToken`, `/services/api/refresh-token`, `/services/api/token/refresh`, `/services/planbook/refreshToken` — all 404.
 
-`/services/api/*` endpoints additionally want an API key:
-`{"notLoggedIn":"true","message":"Invalid API Key. Please contact planbook.com
-administrator."}` - there is a sanctioned API-key mechanism worth asking
-support@planbook.com about.
+`/services/api/*` endpoints want an API key:
+`{"notLoggedIn":"true","message":"Invalid API Key. Please contact planbook.com administrator."}`
 
-Note `/services/*` returns **HTTP 200 with `{"error":"true","message":"HTTP 404 Not
-Found"}`** for unknown paths, so a 200 there proves nothing. Read the body.
-
-Unauthenticated calls return `{"notLoggedIn":"true"}` with HTTP 200 - **check the
-body, not the status code.**
-
+`/services/*` returns **HTTP 200 with `{"error":"true","message":"HTTP 404 Not Found"}`** for
+unknown paths. A 200 proves nothing. Read the body.
 
 ## Conventions
 
-- Most calls are **POST**, `application/x-www-form-urlencoded`. The exceptions are the GET-only `/services/planbook/**` family and the few JSON-body endpoints - see "Two request styles, and a GET-only family" below.
-- Booleans are `Y` / `N` (not true/false), except `fetchDay` which is literal `true`.
-- Absent integers are `0`, **never empty string** — empty triggers a server-side Java NPE:
-  `Cannot invoke "java.lang.Integer.intValue()" because ... getInteger(String) is null`
-- Dates are `MM/DD/YYYY`.
-- Class records use abbreviated keys: `cId` class id, `cN` name, `cYId` year id,
-  `mT`/`tT`/`wT`… day-teach flags, `mSt`/`mEt`… per-day start/end times.
+- Most calls are **POST**, `application/x-www-form-urlencoded`. Exceptions: GET-only `/services/planbook/**` and a few JSON-body endpoints (see "Two request styles" below).
+- Booleans are `Y`/`N` on class day-teach flags and lesson flags. Event and class *control* fields are literal `true`/`false`: `noSchool`, `noCycle`, `privateFlag`, `verifyShift`, `scheduleChange`. `fetchDay` on `/updateLesson` is literal `true` too.
+- `shiftLessons` is the exception to the exception: `N` on `/addEvent`, `false` on `/deleteEvent` and the class endpoints. A wrong value is a silent no-op.
+- Absent integers: `0`, never `""` (empty triggers a Java NPE).
+- Dates: `MM/DD/YYYY`.
+- Abbreviated class keys: `cId`, `cN`, `cYId`, `mT`/`tT`/`wT` (teach flags), `mSt`/`mEt` (times).
+- `scheduleChange=true` is required when updating a class, or the rename lands and the new schedule is silently discarded.
+- `verifyShift=true` means check, don't commit. Events and classes answer exactly like success and write nothing. Commit with `false`.
+- `teachDay1` is **Sunday**, not Monday, in the class schedule JSON.
+- `subjectId` is the class id on the unit endpoints, on assignment records, and on `/getStudentScoresServlet`.
+
+`raw` applies none of these for you.
 
 ## Endpoints observed
 
@@ -84,16 +70,13 @@ POST /services/planbook/oneRosterClient/getAllRosteredItems
 
 Write:
 ```
-POST /addClass       ~40 fields: className, classStartDate, classEndDate, color,
-                     mondayTeach..sundayTeach, wk2*Teach, useSchoolStart/End, ...
+POST /addClass       ~40 fields
 POST /updateLesson   25 fields (below)
 ```
 
-## `/updateLesson` — the important one
+## `/updateLesson`
 
-**Addressed by `classId` + `customDate`. No lesson id required.** It is an idempotent
-upsert: writing the same date twice updates in place, no duplicate. This is what CSV
-import cannot do (CSV is append-only — "imported lessons appear after current lessons").
+Addressed by `classId` + `customDate`. No lesson id required. Idempotent upsert.
 
 Verified payload:
 
@@ -102,7 +85,7 @@ classId=<int>            customDate=09/03/2026     unitId=0
 extraLesson=0            lessonId=0                linkedLessonId=0
 lessonTitle=<str>        lessonText=<html>
 homeworkText=            notesText=
-tab4Text=  tab5Text=  tab6Text=                   (custom lesson-layout tabs)
+tab4Text=  tab5Text=  tab6Text=                   (custom tabs)
 addClassDaysCode=        customStart=  customEnd=
 lessonLock=N             isEditingALinkedLesson=N
 strategySent=Y           unitStandardsSent=Y       statusesSent=Y
@@ -110,263 +93,147 @@ schoolWorks=[]           updatedFields=LESSONTEXT,LESSONTITLE
 oldLesson=               fetchDay=true
 ```
 
-Success = HTTP 200 with `error` absent. Failure = HTTP 200 with `{"error":"true","msg":...}`.
+Success: HTTP 200, `error` absent. Failure: HTTP 200, `{"error":"true","msg":...}`.
 
-`updatedFields` is an uppercase comma list naming which fields you touched.
+## Full-replace gotcha
 
-## Measured
+See [read-before-write decision](../decisions/2026-08-28-read-before-write.md). Fields lost before carry-over was added:
 
-- 164 ms per lesson, serial, from the browser.
-- 5 lessons batch-written across a week: all landed on correct dates.
-- Correctly skipped Labor Day (placed below the holiday marker) with no special handling.
-- Re-write of an existing date updated in place — confirmed visually, no duplicate row.
-
-## Open
-
-- Headless form login against `auth.planbook.com` - untested (needs credentials, and the account here uses SSO).
-  Fallback: paste a cookie periodically.
-- CSV import column set still unconfirmed (sample file is behind a HubSpot bot-check).
-
-## ToS
-
-Terms (last updated 2020-07-01) contain **no** anti-scraping, anti-automation, or
-reverse-engineering clause. Relevant: "No Resale of Service" (broad, aimed at resale);
-no forging headers to disguise origin; they reserve rate limits; termination at sole
-discretion for violating the "spirit" of the ToS. Risk is account termination, not legal.
-Use an honest User-Agent, serialize requests, own account only.
-
-## OAuth2 / OIDC (auth.planbook.com)
-
-Planbook runs a Spring Authorization Server with full discovery at
-`https://auth.planbook.com/.well-known/openid-configuration`:
-
-```
-authorization_endpoint         /oauth2/authorize
-device_authorization_endpoint  /oauth2/device_authorization
-token_endpoint                 /oauth2/token
-jwks_uri                       /oauth2/jwks
-userinfo_endpoint              /userinfo
-grant_types_supported          authorization_code, client_credentials,
-                               refresh_token, device_code
-scopes_supported               openid
-```
-
-The device-code grant is advertised, which is the standard "open your default
-browser and sign in" pattern used by CLIs like `glab` and `gh`.
-
-**It is not usable by a CLI today, for two specific reasons:**
-
-1. `token_endpoint_auth_methods_supported` lists only `client_secret_basic`,
-   `client_secret_post`, `client_secret_jwt`, `private_key_jwt`. There is no
-   `none`, so **public clients are not supported**. A CLI cannot hold a client
-   secret safely.
-2. `code_challenge_methods_supported` is absent, so **PKCE is not advertised** -
-   the mechanism that lets a public client use the authorization-code flow safely.
-
-Both `/oauth2/authorize` and `/oauth2/device_authorization` 302 to `/login` when
-unauthenticated, so client validation cannot be probed from outside.
-
-This server is evidently built for Planbook's confidential partner integrations,
-not for third-party CLIs. `glab` can do browser sign-in because GitLab registered
-a client id for it; the same is required here.
-
-**Concrete ask for support@planbook.com:** register a public OAuth client for
-command-line use, supporting either the device-code grant or authorization-code
-with PKCE. The infrastructure already exists; only a client registration is
-missing. Note also the issuer is advertised as `http://auth.planbook.com`
-(not https), which is worth flagging to them.
-
-
-## Times
-
-Planbook stores times in 12-hour form only: `"9:00 AM"`. Verified by writing three
-formats to `customStart` and reading them back:
-
-| sent | stored |
-|---|---|
-| `09:00` (24-hour) | `""` - **silently dropped** |
-| `9:00AM` | `9:00 AM` (normalized) |
-| `9:00 AM` | `9:00 AM` |
-
-A 24-hour string is accepted without any error and the time is lost. `parse_time()`
-in `wire.py` (re-exported by `api`) converts both forms before sending.
-
-Three separate places carry times:
-
-- `updateLesson` -> `customStart` / `customEnd`. **These do nothing.** The form is
-  rejected without them, the values are accepted, `updatedFields` is honoured, and
-  a read-back always shows the class period's times. Tried: `CUSTOMSTART`/`CUSTOMEND`
-  and `CUSTOMTIME` in `updatedFields`, `extraLesson=1`, and the spellings
-  `lessonStart`, `startTime`, `lessonStartTime`, `customStartTime`, `periodStart`,
-  `timeStart`. All read back unchanged. There is no per-lesson time override to
-  reach, so the CLI does not offer one - change the class schedule instead.
-- `addEvent` -> `eventStartTime` / `eventEndTime`.
-- the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
-  `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
-
-
-## Every update endpoint is a full replace
-
-`/updateLesson`, `/updateToDo` and `/updateClass/v10` all rewrite the whole
-record. None of them honours a field mask - `updatedFields` looks like one and
-is not - so a payload built from defaults silently erases everything it did not
-restate. Each write in this CLI therefore reads first and carries over whatever
-the caller did not name.
-
-Fields that were lost this way before they were carried:
-
-| endpoint | field | what a plain rename did to it |
+| endpoint | field | result of omitting it |
 |---|---|---|
 | `/updateLesson` | `lessonText`, `homeworkText`, `notesText` | emptied |
-| `/updateLesson` | `schoolWorks` | `[]` detached every assignment |
+| `/updateLesson` | `schoolWorks` | `[]` — detached all assignments |
 | `/updateLesson` | `unitId`, `lessonLock`, `extraLesson`, `linkedLessonId` | reset to defaults |
-| `/updateToDo` | `priority`, `done`, `dueDate`, `repeats` | reopened the to-do at low priority |
+| `/updateToDo` | `priority`, `done`, `dueDate`, `repeats` | reopened at low priority |
 | `/updateClass/v10` | `classDesc`, `color`, `lessonLayoutId`, per-day times | wiped |
-
-The tell is that the response is a cheerful success either way.
-
+| `/updateUnit` | `unitDesc`, `unitStart`, `unitEnd`, `unitNum`, `unitTitle`, and the six section texts (`unitLessonText`, `unitHomeworkText`, `unitNotesText`, `unitSection4Text`–`unitSection6Text`) | emptied |
+| `/updateStudentServlet` | email, phone, parent email, code, birthdate, middle name, `studentPhotoUrl` | emptied |
 
 ## Standards and assignments on a lesson
 
-Both attach through `/updateLesson`, and both only stick to a lesson that already
-exists - on a brand-new date `lessonId` is `0` and the server drops them silently.
-The CLI writes the lesson first, re-reads its `lessonId`, then attaches.
+Both go through `/updateLesson` and only stick to a lesson that already exists —
+on a new date (`lessonId=0`) the server drops them silently. The CLI writes the
+lesson first, re-reads its `lessonId`, then attaches.
 
-**Standards** travel as `standardDBIds`, using the **`dbId`**, not the human id
-like `3.NBT.A.1`. Verified semantics:
+**Standards** use `standardDBIds` with the **`dbId`**, not the human id:
 
 | sent | result |
 |---|---|
-| `standardDBIds=118071` | set becomes exactly `[118071]` - it replaces, not appends |
-| `standardDBIds=118071,118072` | **clears the set** - a comma list is not parsed |
+| `standardDBIds=118071` | set = exactly `[118071]` (replaces, not appends) |
+| `standardDBIds=118071,118072` | **clears** — comma list isn't parsed |
 | repeated `standardDBIds=118071&standardDBIds=118072` | both attach |
 | `standardDBIds=` | clears |
 
-So it is a whole-set replace delivered as repeated form fields. A captured payload
-looks like it sends only one id because duplicate keys collapse when you parse the
-body into a dict - which is exactly the mistake that made this look like an append.
-
-**Assignments** travel as `schoolWorks`, a JSON array:
+**Assignments** use `schoolWorks`, a JSON array. An assignment belongs to one
+class (`subjectId`); attaching one from another class is accepted and does
+nothing — the CLI checks ownership first.
 
 ```json
 [{"type":"ASSIGNMENT","typeId":3865664,"shortValueText":"","longValueText":0}]
 ```
 
-They come back on the lesson as `addendums`. An assignment belongs to one class
-(`subjectId`); attaching one from another class is accepted and does nothing, so the
-CLI checks ownership first and refuses.
-
-
 ## Attachments
 
-Upload is the only multipart endpoint in the API:
+Upload is multipart:
 
 ```
 POST /uploadAttachment    multipart, one file part (any field name)
   -> {"fileName": "...", "fileURL": "https://s3.amazonaws.com/PlanbookAttachments/..."}
 ```
 
-The part **must carry a content type**. Without one the server answers
-`Cannot invoke "String.indexOf(String)" because "fileType" is null`, which does not
-hint at the cause.
+The part **must carry a content type** or the server throws an NPE.
 
-Linking a file to a lesson is separate, and goes through `/updateLesson` as repeated
-triples - one per file, same shape as standards:
+The lesson stores the **signed URL**, not a reference to the resource. Re-uploading
+a file under the same name silently replaces its content in every lesson linked to it.
+
+Linking to a lesson goes through `/updateLesson` as repeated triples:
 
 ```
-attachmentNames=place-value.txt   attachmentURL=https://s3/...   attachmentPrivate=N
-attachmentNames=pb-test.txt       attachmentURL=https://s3/...   attachmentPrivate=N
+attachmentNames=file.txt   attachmentURL=https://s3/...   attachmentPrivate=N
 ```
-
-The lesson stores the **signed URL**, not a reference to the resource, so a link
-keeps working independently of the resource list - and re-uploading a file under the
-same name replaces the object everywhere it is linked.
-
-Files come back on the lesson as `attachments` with `filename`, `url` and
-`privateFlag`, and in the account-wide list from `/getAttachmentList` as `fileList`
-with `fileKey`, `fileUrl`, `fileSize`.
-
 
 ## No-school days destroy lessons
 
 Creating an event with `noSchool=true` **permanently deletes every lesson on that
-date**. Deleting the event afterwards restores the empty class slots but not the
-lessons - verified by losing six real lessons to it.
+date**. Deleting the event restores the empty slots but not the lessons. The CLI
+checks for existing lessons first and refuses without `events create --force`.
 
-Nothing in the API signals this: `addEvent` answers the same as any other event.
-The CLI checks for existing lessons first and refuses without `events create --force`.
+## Times
+
+Planbook stores 12-hour only. A 24-hour string is accepted without error and the
+time is lost.
+
+Three places carry times:
+- `updateLesson` `customStart`/`customEnd` — **do nothing**. Accepted, stored, ignored on read-back. Spellings tried: `CUSTOMSTART`/`CUSTOMEND`, `CUSTOMTIME` in `updatedFields`, `extraLesson=1`, `lessonStart`, `startTime`, `lessonStartTime`, `customStartTime`, `periodStart`, `timeStart`. All read back unchanged.
+- `addEvent` `eventStartTime`/`eventEndTime` — works.
+- Class `schedules` `startDayN`/`endDayN` (Sunday-indexed).
 
 ## getLessonsEvents
 
-Fully decoded. The body has a `days` list, one entry per day of the fetched range:
+`days` list, one entry per day. Lessons carry no date — the date comes from the
+day they sit in. Events appear with `"type": "E"`.
 
-```json
-{"date": "09/07/2026", "dayOfWeek": "Monday", "objects": [ ... ]}
-```
+## Two request styles
 
-**Lessons carry no date of their own** - the date comes from the day they sit in,
-which is why they cannot be matched by date from the lesson record alone. `objects`
-holds a placeholder for every class that meets that day; only entries with a
-`lessonId` have been saved. Events appear in the same list with `"type": "E"`.
-
-## Two request styles, and a GET-only family
-
-Everything under `/xxxServlet` and the bare `/getX` `/addX` names is a
-form-encoded **POST**. But part of the API is a Spring service layer under
-`/services/planbook/**` that answers differently:
+`/xxxServlet` and bare `/getX`/`/addX` are form-encoded POST.
+`/services/planbook/**` is a Spring layer:
 
 | response | meaning |
 |---|---|
-| `{"error":"true","message":"HTTP 405 Method Not Allowed"}` to a POST | the endpoint is **GET** |
-| `{"error":"true","message":"HTTP 415 Unsupported Media Type"}` to a JSON POST | wants form encoding, not JSON |
-| `{"error":"true","message":"HTTP 404 Not Found"}` with HTTP 200 | no such path - status codes prove nothing here |
-| an HTML `<!doctype html>` page | the SPA fallback: wrong path or wrong method |
+| 405 to POST | endpoint is GET |
+| 415 to JSON POST | wants form encoding |
+| 200 with `{"error":"true","message":"HTTP 404 Not Found"}` | no such path |
+| HTML page | SPA fallback: wrong path or method |
 
-Confirmed GET endpoints (empty body when there is no data):
-
+GET endpoints:
 ```
 GET /services/planbook/attendance/get?classId=&date=
 GET /services/planbook/attendance/getLessonsByDate?date=
 ```
 
-A client that only speaks POST cannot reach these at all.
-
-## Endpoint map for the remaining features
-
-Found by loading each page and reading `performance.getEntriesByType('resource')`:
+## Endpoint map
 
 | feature | endpoints |
 |---|---|
-| students | `/addStudentServlet` `/updateStudentServlet` `/deleteStudentServlet` (POST form), `/getStudentsServlet` (POST, needs `classId`+`userMode`), `/services/planbook/student/getAllFromSchool` (all students as `{id: "Last, First"}`) |
-| attendance | `/services/planbook/attendance/get`, `/services/planbook/attendance/getLessonsByDate` (both GET) |
-| grades | `/getStudentScoresServlet` (POST; wants a subject, `classId` alone gives `"subject" is null`), `/services/planbook/student/studentsTagged` |
-| templates | `/services/planbook/template/get` (GET, mapped), `/addTemplate`, `/updateTemplate`, `/deleteTemplate` (exist; "Cannot parse null string" until given ids) |
-| lesson banks | no endpoints of their own - the page reuses `/getLessonsEvents` and `/getUnits`, and `getClasses2` already returns `lessonBanks` |
-| lesson moves | `/bumpLesson`, `/extendLesson` exist (Integer NPE until given ids). `/copyLesson` and `/swapLessons` return the SPA page - not real names |
-| seating charts | no page-level endpoints observed |
+| students | `/addStudentServlet`, `/updateStudentServlet`, `/deleteStudentServlet` (POST), `/getStudentsServlet` (POST, needs `classId`+`userMode`), `/services/planbook/student/getAllFromSchool` |
+| attendance | `/services/planbook/attendance/get`, `.../getLessonsByDate` (GET) |
+| grades | `/getStudentScoresServlet` (POST, needs `classId`+subject), `/services/planbook/student/studentsTagged` |
+| templates | `/services/planbook/template/get` (GET), `/addTemplate`, `/updateTemplate`, `/deleteTemplate` |
+| lesson banks | no own endpoints — reuses `/getLessonsEvents` and `/getUnits` |
+| lesson moves | `/bumpLesson`, `/extendLesson` (blocked on unknown param) |
 
-`/addStudentServlet` fields, captured:
-
-```
-studentCode studentPassword studentFirstName studentMiddleName studentLastName
-studentEmailAddress studentPhoneNumber parentEmailAddress studentBirthDate
-schoolDistrictId userMode studentPhotoUrl
-```
-
-## Four endpoints I could not finish
-
-All exist and answer; each wants an integer/long parameter the error refuses to
-name (`HttpServletRequestHelper.getLong(String) is null`, with no field). The
-usual trick - reading the field name out of the NPE - does not work here, and
-none of them fire a fresh request from the UI once the page has cached its data,
-so there was nothing to capture.
+## Blocked endpoints
 
 | endpoint | blocker |
 |---|---|
-| `/services/planbook/newNote/filterNotes` | unnamed Long; `classId` appears beside it in the bundle but no value satisfies it |
-| `/bumpLesson` | unnamed Integer; not `classId`/`customDate`/`numDays` |
-| `/extendLesson` | same as bumpLesson |
-| `/getStandardsReport` | unnamed int (`Integer.parseInt(null)` - "Cannot parse null string"); unchanged by `classId`, `teacherId`, `yearId`, `schoolId`, `unitId`, `standardId`, `subjectId`, `gradeId`, `reportId`, `setId`, `typeId`, `courseId`, `periodId`, `termId`, `lessonId`, `studentId`, `groupId`, `parentId`, `frameworkId`, or by any date field, and identical under GET and JSON |
+| `/services/planbook/newNote/filterNotes` | unnamed Long |
+| `/bumpLesson` | unnamed Integer |
+| `/extendLesson` | unnamed Integer |
+| `/getStandardsReport` | unnamed int; exhaustive probing failed |
 
-Reachable through `planbook raw` once the parameter is known. Capturing one real
-request from the web app - Network tab, Copy as cURL - would settle all three.
+One captured browser request would settle each.
+
+## OAuth2 / OIDC (auth.planbook.com)
+
+Spring Authorization Server. Device-code grant is advertised but **not usable by a CLI**:
+
+1. No `none` in `token_endpoint_auth_methods_supported` — public clients aren't supported.
+2. No `code_challenge_methods_supported` — no PKCE.
+
+Ask support@planbook.com to register a public OAuth client. The issuer is `http` (not `https`).
+
+## ToS
+
+Terms (2020-07-01) have **no** anti-scraping, anti-automation, or
+reverse-engineering clause. They forbid forging headers, reserve rate limits, and
+allow discretionary termination. Risk is account termination, not legal.
+**Use your own account only.**
+
+## Open
+
+- Headless form login against `auth.planbook.com` — untested (account uses SSO).
+- CSV import columns unconfirmed (sample file behind a HubSpot bot-check).
+- The GET-side carry-over field names for `units update` (`unitDesc`, `unitStart`,
+  `unitEnd`, the six section texts) and `students update` (`phoneNumber`,
+  `parentEmailAddress`, `birthDate`) are inferred and tested only against mocks.
+  A wrong spelling blanks the field on every update. Confirm each against a live read.

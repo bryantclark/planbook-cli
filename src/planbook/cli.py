@@ -478,8 +478,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     st.set_defaults(func=cmd_students_list)
     for verb, fn in (("create", cmd_students_create), ("update", cmd_students_update)):
-        st = s_st.add_parser(verb, help=f"{verb} a student")
-        if verb == "update":
+        updating = verb == "update"
+        help_suffix = (
+            " - REPLACES the whole record: unspecified fields are cleared, so "
+            "pass every field you want to keep"
+            if updating
+            else ""
+        )
+        st = s_st.add_parser(verb, help=f"{verb} a student{help_suffix}")
+        if updating:
             st.add_argument("--student-id", dest="student_id", required=True)
         st.add_argument("--first-name", dest="first_name", required=True)
         st.add_argument("--last-name", dest="last_name", required=True)

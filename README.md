@@ -68,7 +68,7 @@ mkdir -p ~/.claude/skills/planbook && cp skills/planbook/SKILL.md ~/.claude/skil
 ```
 
 Or install the repo as a [plugin](.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md)
-for the full agent-facing reference, and [docs/mapping.md](docs/mapping.md) to add endpoints.
+for the full agent-facing reference.
 
 ## Licence
 

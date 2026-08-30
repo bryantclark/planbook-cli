@@ -28,9 +28,18 @@ Established by testing:
 - The `<view-id>` in the cookie name is **not validated** - any non-empty value
   works - but the name must end in `.accesstoken`.
 - The `x-pb-*` headers the web app sends are **not required**.
-- The JWT payload has a double-encoded `sub`: a JSON *string* holding
-  `{id, yearId, key, type, email, code, generic, legacy}`, plus a top-level `exp`.
-- **Lifetime is about 22 hours.** No rotation on normal calls, and no refresh
+- **Two issuers are in circulation and they nest identity differently.** The older
+  payload double-encodes: `sub` is a JSON *string* holding
+  `{id, yearId, key, type, email, code, generic, legacy}`. Tokens from
+  `auth.planbook.com` instead put the same data under a namespaced claim
+  `https://planbook.com/claims`, and spell the year **`yearid`**, lowercase d.
+  Both carry a top-level `exp`. A parser that knows only one shape reads every
+  identity field as null and fails wherever a teacher or year id is needed -
+  which is exactly how `templates`, `attachments` and `schedule special-days`
+  broke. `token.identity()` flattens both.
+- The auth-server token is also **shorter lived**: `exp - iat` is 1 hour, against
+  about 22 for the older one.
+- **Lifetime is 22 hours for the legacy token, 1 hour from the auth server.** No rotation on normal calls, and no refresh
   endpoint - `/refreshToken`, `/services/api/refresh-token`,
   `/services/api/token/refresh` and `/services/planbook/refreshToken` all 404.
 
@@ -185,8 +194,13 @@ in `api.py` converts both forms before sending.
 
 Three separate places carry times:
 
-- `updateLesson` -> `customStart` / `customEnd`, overriding the class schedule for
-  that one date.
+- `updateLesson` -> `customStart` / `customEnd`. **These do nothing.** The form is
+  rejected without them, the values are accepted, `updatedFields` is honoured, and
+  a read-back always shows the class period's times. Tried: `CUSTOMSTART`/`CUSTOMEND`
+  and `CUSTOMTIME` in `updatedFields`, `extraLesson=1`, and the spellings
+  `lessonStart`, `startTime`, `lessonStartTime`, `customStartTime`, `periodStart`,
+  `timeStart`. All read back unchanged. There is no per-lesson time override to
+  reach, so the CLI does not offer one - change the class schedule instead.
 - `addEvent` -> `eventStartTime` / `eventEndTime`.
 - the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
   `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
@@ -319,7 +333,7 @@ studentEmailAddress studentPhoneNumber parentEmailAddress studentBirthDate
 schoolDistrictId userMode studentPhotoUrl
 ```
 
-## Three endpoints I could not finish
+## Four endpoints I could not finish
 
 All exist and answer; each wants an integer/long parameter the error refuses to
 name (`HttpServletRequestHelper.getLong(String) is null`, with no field). The
@@ -332,6 +346,7 @@ so there was nothing to capture.
 | `/services/planbook/newNote/filterNotes` | unnamed Long; `classId` appears beside it in the bundle but no value satisfies it |
 | `/bumpLesson` | unnamed Integer; not `classId`/`customDate`/`numDays` |
 | `/extendLesson` | same as bumpLesson |
+| `/getStandardsReport` | unnamed int (`Integer.parseInt(null)` - "Cannot parse null string"); unchanged by `classId`, `teacherId`, `yearId`, `schoolId`, `unitId`, `standardId`, `subjectId`, `gradeId`, `reportId`, `setId`, `typeId`, `courseId`, `periodId`, `termId`, `lessonId`, `studentId`, `groupId`, `parentId`, `frameworkId`, or by any date field, and identical under GET and JSON |
 
 Reachable through `planbook raw` once the parameter is known. Capturing one real
 request from the web app - Network tab, Copy as cURL - would settle all three.

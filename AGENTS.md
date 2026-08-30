@@ -49,7 +49,7 @@ Run `planbook <group> --help` for exact flags. Groups:
 | `units` | `list`, `create`, `update`, `delete` |
 | `events` | `list`, `create`, `delete` |
 | `todos` | `list`, `create`, `update`, `delete` |
-| reads | `assignments`, `assessments`, `schools`, `templates`, `notes`, `students`, `standards`, `standards-report`, `comments`, `attachments`, `settings`, `schedule special-days` |
+| reads | `assignments`, `assessments`, `schools`, `templates`, `students`, `standards`, `comments`, `attachments`, `settings`, `schedule special-days` |
 | `students` | `list`, `create`, `update`, `delete` |
 | `attendance` | read attendance for a class on a date (read-only) |
 | `grades` | grade periods and scored assignments |
@@ -112,7 +112,6 @@ output as raw, and do not build logic on its internals.
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" \
   --text "<p>Chloroplasts and the light reactions.</p>" \
-  [--start-time 14:30] [--end-time 15:20] \
   [--homework "Read ch. 4"] [--notes "Lab groups of 3"] [--dry-run]
 ```
 
@@ -140,8 +139,9 @@ Each of those **replaces** what was attached, so pass the full set you want. Sta
 use the numeric `db_id`, not the human id. An assignment belongs to one class.
 `--attach` uploads a local path or links an existing resource by name.
 
-Lesson times override the class's usual schedule for that day. Bulk items accept
-`start_time` and `end_time` too.
+A lesson always shows its class period's times. `/updateLesson` accepts
+`customStart` and `customEnd` and then ignores them, so there is no per-lesson
+time override to set. Change the class schedule instead. Events do store times.
 
 Class schedule times:
 
@@ -235,10 +235,10 @@ These come from the server's own behaviour, not from style preference:
 
 These delete data with no undo. Confirm with the user before running them.
 
-- `classes delete <id> --yes` - removes the class **and every lesson in it**. The
+- `classes delete --class-id N --yes` - removes the class **and every lesson in it**. The
   `--yes` flag is required.
 - `lessons delete --class-id N --date D` - clears one lesson.
-- `events delete <id>` - removes the **whole repeating series** by default; pass
+- `events delete --event-id N` - removes the **whole repeating series** by default; pass
   `--occurrence-only` for just that date.
 - `units delete`, `todos delete` - remove one record.
 

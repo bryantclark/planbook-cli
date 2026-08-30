@@ -46,9 +46,10 @@ date edits in place, so it is safe to re-run.
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" \
   --text "<p><strong>Objective:</strong> explain how plants make food.</p>" \
-  --homework "Read ch. 4" \
-  --start-time 09:15 --end-time 10:05
+  --homework "Read ch. 4"
 ```
+
+A lesson always shows its class period's times; there is no per-lesson override.
 
 A lesson has **six** sections, not three. Check what this account calls them:
 
@@ -67,7 +68,7 @@ planbook lessons bulk week.json --class-id 12345678
 ```json
 [
   {"date": "09/07/2026", "title": "Place value", "text": "<p>...</p>",
-   "homework": "Workbook p. 12", "start_time": "09:15", "end_time": "10:05"},
+   "homework": "Workbook p. 12"},
   {"date": "09/08/2026", "title": "Rounding", "text": "<p>...</p>"}
 ]
 ```

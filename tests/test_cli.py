@@ -3,7 +3,7 @@ import json
 import pytest
 import responses
 
-from planbook import cli
+from planbook import api, cli
 from planbook.client import API_BASE
 
 
@@ -206,3 +206,16 @@ def test_raw_json_actually_sends_json(capsys, session_file):
     responses.post(f"{API_BASE}/x", json={})
     assert cli.main(["raw", "/x", "-F", "a=1", "--json"]) == 0
     assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+
+def test_events_create_dry_run_previews_the_payload_the_write_would_send(capsys):
+    # The preview used to build its own payload and had drifted from the real
+    # one, omitting updatedFields and updateCurrentEvent.
+    assert (
+        cli.main(
+            ["events", "create", "--title", "T", "--date", "09/01/2026", "--dry-run"]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)["payload"]
+    assert payload == api.new_event_payload(title="T", date="09/01/2026")

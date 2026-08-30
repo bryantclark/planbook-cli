@@ -219,7 +219,9 @@ def test_set_lesson_dry_run_builds_payload_without_network():
     assert payload["strategySent"] == "Y"
     assert payload["unitStandardsSent"] == "Y"
     assert payload["statusesSent"] == "Y"
-    assert payload["schoolWorks"] == "[]"
+    # Absent unless the caller named assignments: sending "[]" detaches
+    # whatever the lesson already had.
+    assert "schoolWorks" not in payload
     assert payload["fetchDay"] == "true"
 
 
@@ -713,3 +715,50 @@ def test_lesson_payload_validates_the_date():
     # Bulk items never pass through argparse, so the check lives here too.
     with pytest.raises(UsageError):
         api.lesson_payload(class_id=1, date="13/45/2026", title="T")
+
+
+def test_lesson_payload_only_sends_schoolworks_when_assignments_are_named():
+    # A rename used to send schoolWorks="[]", silently detaching every
+    # assignment on the lesson.
+    bare = api.lesson_payload(class_id=1, date="09/01/2026", title="Renamed")[0]
+    assert "schoolWorks" not in bare
+    named = api.lesson_payload(class_id=1, date="09/01/2026", assignments=[42])[0]
+    assert '"typeId":42' in named["schoolWorks"]
+    cleared = api.lesson_payload(class_id=1, date="09/01/2026", assignments=[])[0]
+    assert cleared["schoolWorks"] == "[]"
+
+
+@responses.activate
+def test_update_todo_carries_over_what_the_caller_did_not_name():
+    # /updateToDo replaces the whole record, so a payload built from defaults
+    # silently reopened a completed to-do and reset its priority.
+    responses.post(
+        f"{API_BASE}/getToDos",
+        json={
+            "toDos": [
+                {
+                    "toDoId": 7,
+                    "toDoText": "Old",
+                    "startDate": "09/01/2026",
+                    "dueDate": "09/05/2026",
+                    "priority": "3",
+                    "done": "1",
+                    "repeats": "weekly",
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateToDo", json={"ok": True})
+    api.update_todo(PlanbookClient("t.t.t"), todo_id=7, text="New")
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [c for c in responses.calls if c.request.url.endswith("/updateToDo")][
+                -1
+            ].request.body
+        )
+    )
+    assert sent["toDoText"] == "New"
+    assert sent["dueDate"] == "09/05/2026"
+    assert sent["priority"] == "3"
+    assert sent["done"] == "1"
+    assert sent["repeats"] == "weekly"

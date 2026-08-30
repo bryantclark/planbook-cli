@@ -206,6 +206,27 @@ Three separate places carry times:
   `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
 
 
+## Every update endpoint is a full replace
+
+`/updateLesson`, `/updateToDo` and `/updateClass/v10` all rewrite the whole
+record. None of them honours a field mask - `updatedFields` looks like one and
+is not - so a payload built from defaults silently erases everything it did not
+restate. Each write in this CLI therefore reads first and carries over whatever
+the caller did not name.
+
+Fields that were lost this way before they were carried:
+
+| endpoint | field | what a plain rename did to it |
+|---|---|---|
+| `/updateLesson` | `lessonText`, `homeworkText`, `notesText` | emptied |
+| `/updateLesson` | `schoolWorks` | `[]` detached every assignment |
+| `/updateLesson` | `unitId`, `lessonLock`, `extraLesson`, `linkedLessonId` | reset to defaults |
+| `/updateToDo` | `priority`, `done`, `dueDate`, `repeats` | reopened the to-do at low priority |
+| `/updateClass/v10` | `classDesc`, `color`, `lessonLayoutId`, per-day times | wiped |
+
+The tell is that the response is a cheerful success either way.
+
+
 ## Standards and assignments on a lesson
 
 Both attach through `/updateLesson`, and both only stick to a lesson that already

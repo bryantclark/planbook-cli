@@ -69,6 +69,7 @@ def cmd_classes_update(args: argparse.Namespace) -> None:
             color=args.color,
             description=args.description,
             times=api.parse_day_times(args.time, days) if args.time else None,
+            dry_run=args.dry_run,
         )
     )
 

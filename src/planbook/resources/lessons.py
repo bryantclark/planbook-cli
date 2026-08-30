@@ -207,18 +207,6 @@ def lesson_payload(
         "strategySent": yn(True),
         "unitStandardsSent": yn(True),
         "statusesSent": yn(True),
-        "schoolWorks": json.dumps(
-            [
-                {
-                    "type": "ASSIGNMENT",
-                    "typeId": int(a),
-                    "shortValueText": "",
-                    "longValueText": 0,
-                }
-                for a in (assignments or [])
-            ],
-            separators=(",", ":"),
-        ),
         "updatedFields": ",".join(updated),
         "oldLesson": "",
         "fetchDay": "true",
@@ -236,6 +224,22 @@ def lesson_payload(
         # accepted and clears the set instead. Sending the ids replaces
         # whatever was attached, so pass the full set you want.
         payload["standardDBIds"] = [str(s) for s in standards] or [""]
+    if assignments is not None:
+        # Only sent when the caller named assignments. Sending "[]" otherwise
+        # detaches whatever the lesson already had, so a plain rename used to
+        # silently drop them.
+        payload["schoolWorks"] = json.dumps(
+            [
+                {
+                    "type": "ASSIGNMENT",
+                    "typeId": int(a),
+                    "shortValueText": "",
+                    "longValueText": 0,
+                }
+                for a in assignments
+            ],
+            separators=(",", ":"),
+        )
     return payload, updated
 
 

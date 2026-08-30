@@ -81,33 +81,62 @@ def create_todo(
     return {"ok": True, "todo_id": todo_id, "text": text}
 
 
+PRIORITY_NAMES = {v: k for k, v in TODO_PRIORITIES.items()}
+
+
+def find_todo(client: PlanbookClient, *, todo_id: Any) -> dict[str, Any] | None:
+    """The saved to-do, or None. There is no get-one endpoint."""
+    for record in list_todos(client) or []:
+        if isinstance(record, dict) and str(record.get("toDoId")) == str(
+            intish(todo_id)
+        ):
+            return record
+    return None
+
+
 def update_todo(
     client: PlanbookClient,
     *,
     todo_id: Any,
-    text: str,
-    start: str,
-    due: str = "",
-    priority: str = "low",
-    done: bool = False,
-    repeats: str = "daily",
+    text: str | None = None,
+    start: str | None = None,
+    due: str | None = None,
+    priority: str | None = None,
+    done: bool | None = None,
+    repeats: str | None = None,
 ) -> dict[str, Any]:
-    """Update a to-do.
+    """Update a to-do, carrying over whatever the caller did not name.
 
-    The endpoint replaces the whole record, so every field must be restated;
-    the CLI requires them rather than silently reopening a completed to-do or
-    resetting its priority.
+    `/updateToDo` replaces the whole record, so a payload built from defaults
+    silently reopens a completed to-do and resets its priority and due date.
+    Read-modify-write, the same as a lesson.
     """
+    existing = find_todo(client, todo_id=todo_id) or {}
+    if existing:
+        if text is None:
+            text = str(existing.get("toDoText") or "")
+        if start is None:
+            start = str(existing.get("startDate") or "")
+        if due is None:
+            due = str(existing.get("dueDate") or "")
+        if priority is None:
+            priority = PRIORITY_NAMES.get(
+                str(existing.get("priority")), str(existing.get("priority") or "1")
+            )
+        if done is None:
+            done = str(existing.get("done")) in ("1", "true", "True")
+        if repeats is None:
+            repeats = str(existing.get("repeats") or "daily")
     client.post(
         "/updateToDo",
         _todo_payload(
             todo_id=todo_id,
-            text=text,
-            start=start,
-            due=due,
-            priority=priority,
-            done=done,
-            repeats=repeats,
+            text=text or "",
+            start=start or "",
+            due=due or "",
+            priority=priority or "low",
+            done=bool(done),
+            repeats=repeats or "daily",
         ),
     )
     return {"ok": True, "todo_id": intish(todo_id)}

@@ -174,6 +174,7 @@ def update_class(
     color: str | None = None,
     description: str | None = None,
     times: dict[str, tuple[str, str]] | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Update a class, changing only what you pass.
 
@@ -251,6 +252,14 @@ def update_class(
     for day in DAY_ORDER:
         payload[f"{day}Teach"] = yn(day in new_days)
 
+    if dry_run:
+        # The read above already happened; only the write is skipped. Showing
+        # the real payload is the point, and it cannot be built without it.
+        return {
+            "dry_run": True,
+            "endpoint": "/updateClass/v10",
+            "payload": payload,
+        }
     client.post("/updateClass/v10", payload)
     return {
         "ok": True,

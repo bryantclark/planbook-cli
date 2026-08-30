@@ -356,16 +356,36 @@ def build_parser() -> argparse.ArgumentParser:
     t.set_defaults(func=cmd_todos_list)
     for verb, fn in (("create", cmd_todos_create), ("update", cmd_todos_update)):
         t = s_td.add_parser(verb, help=f"{verb} a to-do")
-        if verb == "update":
+        creating = verb == "create"
+        # On update every field is optional and anything unnamed is carried
+        # over, so None has to mean "leave it alone" rather than a default.
+        if not creating:
             t.add_argument("--todo-id", dest="todo_id", required=True)
-        t.add_argument("--text", required=True, help="HTML accepted")
-        t.add_argument("--start", required=True, metavar="MM/DD/YYYY", type=_date)
+        t.add_argument("--text", required=creating, help="HTML accepted")
+        t.add_argument("--start", required=creating, metavar="MM/DD/YYYY", type=_date)
         t.add_argument(
             "--due", metavar="MM/DD/YYYY", type=_date, help="defaults to --start"
         )
-        t.add_argument("--priority", choices=["low", "medium", "high"], default="low")
-        t.add_argument("--done", action="store_true")
-        t.add_argument("--repeats", default="daily")
+        t.add_argument(
+            "--priority",
+            choices=["low", "medium", "high"],
+            default="low" if creating else None,
+        )
+        t.add_argument(
+            "--done",
+            action="store_const",
+            const=True,
+            default=False if creating else None,
+        )
+        if not creating:
+            t.add_argument(
+                "--not-done",
+                dest="done",
+                action="store_const",
+                const=False,
+                help="mark a completed to-do as not done",
+            )
+        t.add_argument("--repeats", default="daily" if creating else None)
         t.set_defaults(func=fn)
     t = s_td.add_parser("delete", help="delete a to-do")
     t.add_argument("--todo-id", dest="todo_id", required=True)

@@ -48,12 +48,19 @@ def cmd_endpoints(_args: argparse.Namespace) -> None:
 
 def cmd_raw(args: argparse.Namespace) -> None:
     """POST to any endpoint. The escape hatch for unmapped calls."""
-    payload: dict[str, str] = {}
+    # A repeated key becomes a list, not an overwrite. Several endpoints
+    # require repeated form fields - standardDBIds is the one that bites,
+    # since a comma-joined value is accepted and clears the set instead.
+    payload: dict[str, str | list[str]] = {}
     for pair in args.field:
         if "=" not in pair:
             raise UsageError(f"--field expects key=value, got {pair!r}")
         key, value = pair.split("=", 1)
-        payload[key] = value
+        if key in payload:
+            seen = payload[key]
+            payload[key] = [*seen, value] if isinstance(seen, list) else [seen, value]
+        else:
+            payload[key] = value
     if args.dry_run:
         emit(
             {

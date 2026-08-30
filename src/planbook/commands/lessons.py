@@ -174,10 +174,11 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
-        _require_class_id(item, args, index)
         # Build every payload up front: it is pure, and it is what rejects an
-        # item with nothing to write. SKILL.md promises a bad item cannot
-        # half-apply a week, so that has to fail before the first send.
+        # item with nothing to write or a date that is not a date. SKILL.md
+        # promises a bad item cannot half-apply a week, so this has to fail
+        # before the first send - including the section labels, which need a
+        # lookup and so are easy to leave until the write.
         api.lesson_payload(
             class_id=_require_class_id(item, args, index),
             date=item["date"],
@@ -186,6 +187,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
             homework=item.get("homework"),
             notes=item.get("notes"),
             unit_id=item.get("unit_id"),
+            sections=_bulk_sections(item, args, index),
         )
 
     if args.dry_run:

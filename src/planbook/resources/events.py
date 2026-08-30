@@ -80,6 +80,41 @@ def event_payload(
     }
 
 
+def new_event_payload(
+    *,
+    title: str,
+    date: str,
+    end_date: str | None = None,
+    text: str = "",
+    start_time: str = "",
+    end_time: str = "",
+    private: bool = False,
+    no_school: bool = False,
+    repeats: str = "daily",
+) -> dict[str, str]:
+    """The exact form /addEvent receives.
+
+    One builder so that --dry-run cannot drift from the real write; the
+    preview used to omit updatedFields and updateCurrentEvent.
+    """
+    payload = event_payload(
+        {
+            "repeats": repeats,
+            "eventTitle": title,
+            "eventDate": date,
+            "endDate": end_date or date,
+            "eventText": text,
+            "eventStartTime": start_time,
+            "eventEndTime": end_time,
+            "privateFlag": private,
+            "noSchool": no_school,
+        }
+    )
+    payload["updatedFields"] = "extraDays"
+    payload["updateCurrentEvent"] = "false"
+    return payload
+
+
 def create_event(
     client: PlanbookClient,
     *,
@@ -107,21 +142,17 @@ def create_event(
                 "permanently; deleting the event later does not restore them. "
                 "Pass --force if that is what you want."
             )
-    payload = event_payload(
-        {
-            "repeats": repeats,
-            "eventTitle": title,
-            "eventDate": date,
-            "endDate": end_date or date,
-            "eventText": text,
-            "eventStartTime": start_time,
-            "eventEndTime": end_time,
-            "privateFlag": private,
-            "noSchool": no_school,
-        }
+    payload = new_event_payload(
+        title=title,
+        date=date,
+        end_date=end_date,
+        text=text,
+        start_time=start_time,
+        end_time=end_time,
+        private=private,
+        no_school=no_school,
+        repeats=repeats,
     )
-    payload["updatedFields"] = "extraDays"
-    payload["updateCurrentEvent"] = "false"
     client.post("/addEvent", payload)
     return {"ok": True, "title": title, "date": date}
 

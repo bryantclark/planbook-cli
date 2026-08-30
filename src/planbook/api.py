@@ -24,6 +24,7 @@ from .resources.events import (
     event_payload,
     find_event,
     list_events,
+    new_event_payload,
 )
 from .resources.lessons import (
     DEFAULT_SECTION_LABELS,
@@ -149,6 +150,7 @@ __all__ = [
     "list_templates",
     "list_todos",
     "list_units",
+    "new_event_payload",
     "no_school_dates",
     "normalize_class",
     "parse_date",

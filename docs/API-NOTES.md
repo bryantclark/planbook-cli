@@ -1,19 +1,18 @@
 # Planbook API notes
 
-Mapped 2026-08-28 by observing the web app's network traffic. No published API
-docs exist; endpoints can change without notice.
+Mapped 2026-08-28 from the web app's network traffic. No published API docs
+exist; endpoints can change without notice.
 
 ## Hosts
 
 | host | notes |
 |---|---|
-| `app.planbook.com` | Vue SPA. Answers 405 to non-browser clients. Not scripted by this tool. |
-| `api.planbook.com` | The API. Root path serves marketing HTML (looks like a dead end; it isn't). |
+| `app.planbook.com` | Vue SPA. Returns 405 to non-browser clients. Not scripted by this tool. |
+| `api.planbook.com` | The API. Root path serves marketing HTML — looks like a dead end but isn't. |
 | `auth.planbook.com` | Login. SSO: Google, Microsoft, Clever, ClassLink, Apple. |
 
-Edge protection is not applied uniformly across these hosts. That observation
-went to Planbook directly and is not detailed here; see
-[PRODUCTION-READINESS.md](PRODUCTION-READINESS.md).
+Edge protection is not uniform across these hosts. Details went to Planbook
+directly; see [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md).
 
 ## Auth
 
@@ -219,12 +218,14 @@ One captured browser request would settle each.
 
 ## OAuth2 / OIDC (auth.planbook.com)
 
-Spring Authorization Server. Device-code grant is advertised but **not usable by a CLI**:
+Spring Authorization Server. Device-code grant is advertised but **not usable by
+a CLI**:
 
-1. No `none` in `token_endpoint_auth_methods_supported` — public clients aren't supported.
+1. No `none` in `token_endpoint_auth_methods_supported` — no public clients.
 2. No `code_challenge_methods_supported` — no PKCE.
 
-Ask support@planbook.com to register a public OAuth client. The issuer is `http` (not `https`).
+Ask support@planbook.com about registering a public OAuth client. Issuer is
+`http` (not `https`).
 
 ## ToS
 
@@ -235,9 +236,9 @@ allow discretionary termination. Risk is account termination, not legal.
 
 ## Open
 
-- Headless form login against `auth.planbook.com` — untested (account uses SSO).
+- Headless form login against `auth.planbook.com` — untested; account uses SSO.
 - CSV import columns unconfirmed (sample file behind a HubSpot bot-check).
-- The GET-side carry-over field names for `units update` (`unitDesc`, `unitStart`,
-  `unitEnd`, the six section texts) and `students update` (`phoneNumber`,
+- Carry-over field names for `units update` (`unitDesc`, `unitStart`, `unitEnd`,
+  the six section texts) and `students update` (`phoneNumber`,
   `parentEmailAddress`, `birthDate`) are inferred and tested only against mocks.
-  A wrong spelling blanks the field on every update. Confirm each against a live read.
+  A wrong spelling blanks the field on every update. Confirm against a live read.

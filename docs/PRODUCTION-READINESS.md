@@ -1,9 +1,8 @@
 # What it would take to make this official
 
-Written for Planbook. This tool works and people can use it today, but it is
-unofficial, and a few things have to change before Planbook could put its name
-on it or market it. This file says what those things are, who has to do each
-one, and roughly how big it is.
+This tool works today, but it is unofficial. A few things have to change before
+Planbook could put its name on it. This file says what those things are, who owns
+each one, and roughly how big it is.
 
 Contact: through GitHub — github.com/bryantclark/planbook-cli.
 
@@ -14,69 +13,66 @@ Contact: through GitHub — github.com/bryantclark/planbook-cli.
 | Licence | MIT, source public at github.com/bryantclark/planbook-cli |
 | Published | PyPI, `planbook-cli`, released from CI with a trusted publisher |
 | Coverage | ~30 endpoints: classes, lessons, units, events, to-dos, students, grades, attendance, standards, assignments, attachments |
-| Users | One teacher, daily, through an AI assistant. That is the whole user base. |
-| Built against | The private API the web app uses, mapped by watching a signed-in session's own traffic. No published API exists. |
-| Tests / CI | Unit tests with mocked HTTP, lint, type-check, all gates enforced on every push |
+| Users | One teacher, daily, through an AI assistant |
+| Built against | The private web-app API, mapped by observing a signed-in session's own traffic |
+| Tests / CI | Unit tests with mocked HTTP, lint, type-check — all gates enforced on every push |
 
-The domain knowledge is the asset, not the code. `docs/API-NOTES.md` is a
-written-down model of the API's conventions and traps — full-record replace on
-update, `Y`/`N` booleans, `0` for absent integers, which fields silently vanish
-if omitted. Most of a client SDK's spec is already there.
+The domain knowledge is the asset, not the code. `docs/API-NOTES.md` documents
+the API's conventions and traps — full-record replace on update, `Y`/`N`
+booleans, `0` for absent integers, fields that vanish silently if omitted. Most
+of a client SDK's spec is already there.
 
 ## The blocker: authentication
 
-Two ways in, and that is deliberate — the password login and the automated
-browser both went in the bin. Today the CLI reads
-the `.accesstoken` JWT out of the cookie store of a browser the teacher is
-already signed in to, or the teacher pastes one in by hand. Both send it as
-`Authorization: Bearer`. The token is stored at `~/.config/planbook/token.json`,
-mode 0600, and it expires on its own in about 22 hours.
+The CLI reads the `.accesstoken` JWT from the cookie store of a browser the
+teacher is already signed in to, or accepts one pasted by hand. Both send it as
+`Authorization: Bearer`. The token is stored at `~/.config/planbook/token.json`
+(mode 0600) and expires on its own in about 22 hours. The password login and the
+automated browser were removed deliberately — see
+[decisions/2026-08-30-one-auth-path.md](../decisions/2026-08-30-one-auth-path.md).
 
-That is a stopgap and it should not be how an official integration works. It
-normalises teachers handing a live full-account session token to a program they
-installed from a package index — and those accounts hold student names, grades,
-and attendance. It also has no scopes, no consent screen, no revocation, and no
-audit trail. There is no version of that which is production ready.
+This is a stopgap. It puts a live, full-account session token into a program
+from a package index — and those accounts hold student names, grades, and
+attendance. No scopes, no consent screen, no revocation, no audit trail. None of
+that is production-ready.
 
-The replacement is mostly already built on Planbook's side.
-`auth.planbook.com` runs a Spring Authorization Server publishing OIDC
-discovery. What its metadata does not advertise:
+The replacement is mostly built on Planbook's side already.
+`auth.planbook.com` runs a Spring Authorization Server with OIDC discovery. What
+its metadata does not yet advertise:
 
 - `none` in `token_endpoint_auth_methods_supported`. Without it there are no
-  public clients, and a CLI distributed on PyPI cannot hold a client secret.
-- `code_challenge_methods_supported`. No PKCE, so the authorization-code flow
+  public clients, and a CLI on PyPI can't hold a client secret.
+- `code_challenge_methods_supported`. Without PKCE the authorization-code flow
   has no safe form for a public client.
-- A refresh grant reachable by that client. There is no refresh endpoint on the
-  private API either — every session ends when the token does.
+- A refresh grant reachable by that client. The private API has no refresh
+  endpoint either — every session ends when the token does.
 
-Also: the discovery document advertises its issuer over `http`, not `https`.
-Conforming clients reject that outright.
+The discovery document also advertises its issuer over `http`, not `https`.
+Conforming clients reject that.
 
 **Planbook's side** — register a public client, enable PKCE (S256), allow the
 loopback redirect (RFC 8252) and ideally the device-code grant, define a scope
-vocabulary, put up a consent screen naming what a client can read and write,
-and give teachers and district admins a page that lists and revokes connected
-apps. Fix the issuer URL.
+vocabulary, show a consent screen naming what a client can read and write, give
+teachers and district admins a page that lists and revokes connected apps, and
+fix the issuer URL.
 
 **This side** — swap browser-token import for that flow, handle refresh and the
-new 401/403 shapes, update the error messages and docs. It is a small amount of
-work and it is entirely downstream of the decisions above, which is why it is
-not written yet: a flow no server accepts is not a feature.
+new 401/403 shapes, update the error messages and docs. This is a small amount
+of work and is entirely downstream of the server-side decisions above.
 
 ## Decisions that come before the code
 
-Auth is the implementation detail. These are the real questions, and they are
-Planbook's to answer, not mine:
+Auth is the implementation detail. These are the questions, and they are
+Planbook's:
 
-- Do third-party agents get write access to gradebooks at all, or read-only
-  first?
+- Do third-party agents get write access to gradebooks, or read-only first?
 - Scoped consent: per-class, per-capability, or one all-or-nothing grant?
 - Do school and district admins get a policy switch over what their teachers
   can connect?
 - Revocation and audit: when a district asks who wrote that grade, what answers?
 - Rate limits and quotas per client, and what happens when one is hit.
-- Support load. An agent that mangles someone's week generates a ticket to
-  Planbook, not to the agent's author.
+- Support load: an agent that mangles someone's week generates a ticket to
+  Planbook, not the agent's author.
 
 ## Legal and compliance
 
@@ -84,9 +80,9 @@ Planbook's to answer, not mine:
   vendor-blessed client that touches them has to fit the DPAs Planbook already
   signs with districts: audit logging, retention and deletion, and a defined
   processor role for anything downstream of the API. Today the tool prints
-  student names and email addresses to a terminal, which is fine for a teacher
-  reading their own roster and not fine as a shipped default without that
-  posture written down.
+  student names and email addresses to a terminal — fine for a teacher reading
+  their own roster, not fine as a shipped default without that posture written
+  down.
 - **Terms of service.** The current terms (2020-07-01) have no anti-automation,
   anti-scraping, or reverse-engineering clause. They forbid disguising the
   origin of a request — this tool sends an honest `User-Agent` naming itself
@@ -94,39 +90,37 @@ Planbook's to answer, not mine:
   termination. An official integration needs its own API terms: acceptable use,
   data handling, and a way to cut off a misbehaving client.
 - **Trademark.** Current use is nominative and the README says "unofficial"
-  in the first line. If Planbook adopts it, that changes either way: a name
-  licence, or a rename and a fork under Planbook's own account.
-- **Copyright.** MIT already lets Planbook use, modify, and ship this,
-  including in a closed product. It does not transfer ownership. Making it an
-  official client wants either an assignment or a CLA so there is one owner of
-  record.
-- **The API notes.** `docs/API-NOTES.md` documents the private API. It was
-  written from the author's own account's traffic and contains no credentials
-  or anyone else's data, but it is public documentation of an unpublished
-  interface. Three ways that goes: it becomes the seed of Planbook's own
-  developer docs, it moves to a private repository, or it comes down. Say
-  which and it happens.
+  in the first line. If Planbook adopts it, that changes: either a name licence
+  or a rename and fork under Planbook's account.
+- **Copyright.** MIT already lets Planbook use, modify, and ship this, including
+  in a closed product. It does not transfer ownership. Making it an official
+  client wants either an assignment or a CLA so there is one owner of record.
+- **The API notes.** `docs/API-NOTES.md` documents the private API from the
+  author's own account traffic. It contains no credentials or other users'
+  data, but it is public documentation of an unpublished interface. Three ways
+  that resolves: it seeds Planbook's own developer docs, it moves to a private
+  repository, or it comes down.
 
 ## Things worth fixing regardless
 
-These were found while building and are reported here in general terms; details
-have gone to Planbook directly rather than into a public file.
+Found while building; reported here in general terms. Details went to Planbook
+directly.
 
-- The edge configuration differs between hosts, in a way that makes the
+- The edge configuration differs between hosts in a way that makes the
   protection on one of them easy to sidestep. Worth a look by whoever owns the
   WAF rules.
 - The OIDC issuer URL is `http`.
-- Long-lived tokens with no refresh and no revocation path. Shorter tokens plus
-  refresh is strictly better than 22-hour bearer tokens with no way to kill one.
+- Long-lived tokens with no refresh and no revocation. Shorter tokens plus
+  refresh is strictly better than 22-hour bearers you can't kill.
 - Not security, but a data-loss bug: creating an event with `noSchool=true`
-  permanently deletes every lesson on that date, and deleting the event does not
-  bring them back. This CLI warns before doing it. The web app should too.
+  permanently deletes every lesson on that date, and deleting the event doesn't
+  bring them back. This CLI warns first. The web app should too.
 
 ## What to build
 
-Four phases. Phase 1 is Planbook's, and everything else waits on it.
+Four phases. Phase 1 is Planbook's; everything else waits on it.
 
-### Phase 1 — Planbook enables third-party clients (Planbook, server-side)
+### Phase 1 — Planbook enables third-party clients (server-side)
 
 | | |
 |---|---|
@@ -134,13 +128,13 @@ Four phases. Phase 1 is Planbook's, and everything else waits on it.
 | Enable PKCE | `code_challenge_methods_supported: ["S256"]` |
 | Allow loopback redirects | RFC 8252: `http://127.0.0.1:<any port>/…`, port not part of the registered value |
 | Enable the refresh grant | so a session outlives one token |
-| Optional but wanted | device-code grant, for machines with no browser |
-| Fix the issuer | it is advertised as `http`, which conforming clients reject |
+| Optional but wanted | device-code grant for machines with no browser |
+| Fix the issuer | advertised as `http`; conforming clients reject it |
 | Define scopes | see below |
 | Consent screen | names the client and what it may read and write |
-| Connected-apps page | teacher-level, and district-admin-level, with revoke |
+| Connected-apps page | teacher-level and district-admin-level, with revoke |
 
-A starting scope vocabulary, matching what the API already separates:
+A starting scope vocabulary matching what the API already separates:
 
 ```
 planbook.classes.read      planbook.classes.write
@@ -152,41 +146,37 @@ planbook.students.read     planbook.students.write
 planbook.grades.read       planbook.attendance.read
 ```
 
-Read and write split per resource, students and grades separable from
-everything else, and no scope that grants the whole account. A first release
-could ship read-only scopes and the lesson/unit/event writes, and hold back
-student and grade writes entirely.
+Read and write split per resource, students and grades separable from everything
+else, no scope that grants the whole account. A first release could ship
+read-only scopes and the lesson/unit/event writes, holding back student and
+grade writes entirely.
 
 ### Phase 2 — The client switches to it (this repo)
 
 - Authorization code + PKCE with a loopback listener; device code as the
   fallback.
-- Refresh handling: renew in the background, fail cleanly when the refresh
-  token is revoked.
-- New failure modes: insufficient scope, revoked grant, rate limited — each
-  with an exit code and a message that says what to do.
-- Delete `auth import` and `auth token`, and the browser-cookie dependency with
-  them. This is the point of the whole exercise: no tool should be reading a
-  teacher's cookie store.
+- Refresh handling: renew in the background, fail cleanly on a revoked grant.
+- New failure modes: insufficient scope, revoked grant, rate limited — each with
+  an exit code and a message that says what to do.
+- Delete `auth import`, `auth token`, and the browser-cookie dependency. This is
+  the point: no tool should read a teacher's cookie store.
 - Migration: one release where both work and the old paths warn, then a release
   where only OAuth does.
 
 ### Phase 3 — What makes it marketable (joint)
 
-- **Public API docs.** `docs/API-NOTES.md` is most of the raw material; it
-  needs to become a documented, supported surface with stable field names
-  rather than the wire format's `cId` and `Y`/`N`.
-- **Rate limits and quotas**, published, per client, with a documented
-  429 response.
-- **Audit trail.** Every write records which client made it, so "who wrote that
-  grade" has an answer.
+- **Public API docs.** `docs/API-NOTES.md` is most of the raw material; it needs
+  to become a documented, supported surface with stable field names rather than
+  `cId` and `Y`/`N`.
+- **Rate limits and quotas**, published, per client, with a documented 429
+  response.
+- **Audit trail.** Every write records which client made it.
 - **Admin controls.** A school or district switch over whether teachers may
-  connect third-party clients at all, and which ones.
-- **Data-handling statement** covering third-party clients, fitting the
-  district DPAs Planbook already signs.
-- **A listing.** "Works with your AI assistant" is the marketable claim, and it
-  needs a page on planbook.com, an install command, and a supported-integration
-  badge to be real.
+  connect third-party clients, and which ones.
+- **Data-handling statement** covering third-party clients, fitting existing
+  district DPAs.
+- **A listing.** "Works with your AI assistant" needs a page on planbook.com, an
+  install command, and a supported-integration badge to be real.
 
 ### Phase 4 — Handover
 
@@ -195,8 +185,8 @@ student and grade writes entirely.
 - Release pipeline and PyPI package name moved.
 - Support path documented: what goes to Planbook, what stays with the client.
 
-The client-side work in phases 2 and 4 is small — roughly two to four weeks of
-one engineer, and about half of that is waiting. Phases 1 and 3 are the real
+Client-side work in phases 2 and 4 is small — roughly two to four weeks of one
+engineer, about half waiting on server-side changes. Phases 1 and 3 are the real
 project, and they are Planbook's.
 
 ## What Planbook could do with it
@@ -204,17 +194,15 @@ project, and they are Planbook's.
 Pick whichever fits; the first two both end with teachers able to use this
 safely.
 
-1. **Take it.** MIT already permits this. Register the public client, and
-   either fork the repo or let it keep living here as a community client. No
-   money changes hands. This is a fine outcome.
+1. **Take it.** MIT already permits this. Register the public client and either
+   fork the repo or let it live here as a community client. No money changes
+   hands.
 2. **Contract the finish.** Scope and price agreed up front: the OAuth client
-   work, developer docs, error handling for the new failure modes, and a
-   handover. Roughly two to four weeks of one engineer, about half of it
-   waiting on the server-side work above.
-3. **Do nothing.** The tool keeps working as long as the private API does. If
-   the choice is between blocking it and leaving it alone, leaving it alone
-   costs Planbook nothing and keeps a teacher productive — but it leaves the
-   auth pattern in place, which is the part nobody should want.
+   work, developer docs, new error handling, and a handover. Roughly two to four
+   weeks of one engineer, about half waiting on server-side work.
+3. **Do nothing.** The tool keeps working as long as the private API does. It
+   leaves the auth pattern in place, which is the part nobody should want — but
+   blocking it costs teachers more than leaving it alone.
 
-Whatever the answer on the business side, the security items above stand on
-their own and are worth routing internally today.
+The security items above stand on their own and are worth routing internally
+today regardless.

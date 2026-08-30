@@ -11,12 +11,10 @@ language: python
 
 ## Why these choices
 
-Python because the audience is teachers and agents, not systems engineers. `requests`
+Python for the audience (teachers and agents, not systems engineers). `requests`
 over `httpx` because every call is serial by design — async adds nothing. `browser-cookie3`
-reads browser cookie stores, so `auth import` needs no manual paste. `hatchling` builds the wheel;
+reads browser cookie stores so `auth import` needs no manual paste. `hatchling` builds the wheel;
 `ruff` formats and lints; `mypy --strict` type-checks.
-
-by default because most users authenticate through `auth import`.
 
 ## Common commands
 

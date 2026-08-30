@@ -7,14 +7,14 @@ rather than a public issue. Expect a reply within a week.
 
 ## Reporting something about Planbook.com
 
-This project is not affiliated with Planbook.com. Anything about their service
-belongs to support@planbook.com, not here. Findings from building this tool
-were reported to Planbook directly; this repository does not publish
-exploitable detail about their platform.
+This project is not affiliated with Planbook.com. Report issues about their
+service to support@planbook.com, not here. Findings from building this tool
+were reported to Planbook directly; this repository does not publish exploitable
+detail about their platform.
 
 ## What this tool does with your credentials
 
-- The credential is your own Planbook access token — a JWT the web app already
+- The credential is your Planbook access token — a JWT the web app already
   holds. `auth import` reads it from your browser's cookie store; `auth token`
   takes one you paste. Nothing else is collected.
 - It is stored at `~/.config/planbook/token.json`, file mode 0600, in a

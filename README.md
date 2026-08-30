@@ -1,15 +1,15 @@
 # planbook-cli
 
 Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
-plans and the schedule around them; reads grades and attendance — built for both people and AI agents.
+plans, schedules, grades, and attendance — built for people and AI agents.
 
-Not affiliated with, endorsed by, or supported by Planbook.com. It works on your
-own account with your own credentials. See [SECURITY.md](SECURITY.md) for what it
-does with them, and [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md)
-for what an official, supported version would take.
+Not affiliated with or supported by Planbook.com. It works on your own account
+with your own credentials. See [SECURITY.md](SECURITY.md) for what it does with
+them and [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md) for what
+an official version would take.
 
-No published API exists yet; this tool talks to the same API the web app uses.
-See [docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details.
+No published API exists; this tool talks to the same endpoints the web app uses.
+See [docs/API-NOTES.md](docs/API-NOTES.md) for details.
 Run `planbook endpoints` for current coverage.
 
 ## Install
@@ -40,11 +40,11 @@ planbook lessons set --class-id 12345678 --date 09/03/2026 \
 ## Authentication
 
 - **`auth import`** (recommended) — reads the token from a browser you are already signed in to. On macOS, approve the Keychain prompt (**Always Allow**).
-- **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output. The fallback when the cookie store cannot be read (Safari without Full Disk Access).
+- **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output. The fallback when the cookie store can't be read (Safari without Full Disk Access).
 
-Nothing here is how this should work. Both paths carry an existing full-account
-token, and neither has scopes, consent, or revocation. See
-[docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
+Both paths carry a full-account token with no scopes, consent, or revocation.
+See [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md) for what should
+replace them.
 
 Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` overrides for CI.
 
@@ -59,16 +59,11 @@ Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` ove
 
 ## Caveats
 
-- No published API exists yet; endpoints may change. See [docs/API-NOTES.md](docs/API-NOTES.md).
+- No published API exists; endpoints can change. See [docs/API-NOTES.md](docs/API-NOTES.md).
 - Only `api.planbook.com` is used; the web app host is never scripted.
 - Requests are serialized. No parallelism.
-- Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and discretionary termination.
-
-- Authentication is a stopgap: the tool carries your existing browser token. A
-  proper OAuth client is what this should use instead — see
-  [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
-
-There's evidence of a sanctioned API-key mechanism. If you depend on this tool, ask support@planbook.com.
+- Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and allow discretionary termination.
+- There's evidence of a sanctioned API-key mechanism. If you depend on this tool, ask support@planbook.com about it.
 
 ## Agent discovery
 

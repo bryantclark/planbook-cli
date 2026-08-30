@@ -13,15 +13,13 @@ the manual fallback.
 
 ## Why
 
-- The password path was untested and unusable: the accounts in question sign in
-  with SSO, so the form login could never work for them. Shipping a command that
-  asks for a Planbook password and cannot use it is the worst credential
-  surface in the tool.
-- The browser path drove an automated browser, which identity providers refuse
-  and which reads as impersonation. It needed an optional Playwright dependency
-  to do it.
-- Neither is what an official integration would use. Both were paths to the same
-  bearer token `auth import` already gets without automating anything.
+- The password path was untested and unusable: the accounts in question use SSO,
+  so the form login never worked. A command that asks for a password it can't
+  use is the worst credential surface in the tool.
+- The browser path drove an automated browser. Identity providers refuse these,
+  and it reads as impersonation. It pulled in an optional Playwright dependency.
+- Neither is what an official integration would use. Both reached the same bearer
+  token `auth import` already gets without automating anything.
 
 ## Consequence
 

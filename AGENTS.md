@@ -86,9 +86,8 @@ update` needs `--class-id` as well as `--student-id`.
 
 `auth status` and `auth import` are safe unattended. `auth import` may raise a
 macOS Keychain prompt. Without a TTY it never waits for you to sign in: it
-succeeds if a browser or the stored session holds a usable token, and exits 64 if
-neither does. A Keychain
-prompt can still block it.
+succeeds if a browser or the stored session holds a usable token, and exits 64
+if neither does. A Keychain prompt can still block it.
 
 `auth token` needs a human. Never run it unattended.
 

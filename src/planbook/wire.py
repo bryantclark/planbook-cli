@@ -205,14 +205,27 @@ def build_schedule(
 
 
 def parse_date(value: str, *, flag: str = "date") -> str:
-    """Validate an MM/DD/YYYY date and return it unchanged.
+    """Validate a date and return it zero-padded as MM/DD/YYYY.
 
     Worth doing locally: the server answers a malformed date with a Java
     NullPointerException about `Schedule.getScheduleStart()`, which tells a
     caller nothing and arrives as an API error rather than a usage error.
+
+    Normalizing is not cosmetic. The server always reports dates zero-padded,
+    and `find_lesson` matches them by exact string, so an unpadded `9/3/2026`
+    would fail to find the lesson already saved on `09/03/2026` and a write
+    would blank it as if the date were empty.
     """
+    if not isinstance(value, str):
+        raise UsageError(
+            f"{flag}: expected a date string, got {type(value).__name__}. "
+            "Planbook wants MM/DD/YYYY, e.g. 09/03/2026."
+        )
+    parts = value.split("/")
     try:
-        month, day, year = (int(part) for part in value.split("/"))
+        if len(parts) != 3:
+            raise ValueError
+        month, day, year = (int(part) for part in parts)
         datetime.date(year, month, day)
     except ValueError:
         raise UsageError(
@@ -221,4 +234,4 @@ def parse_date(value: str, *, flag: str = "date") -> str:
         ) from None
     if not 1000 <= year <= 9999:
         raise UsageError(f"{flag}: {value!r} needs a four-digit year.")
-    return value
+    return f"{month:02d}/{day:02d}/{year:04d}"

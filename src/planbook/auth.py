@@ -63,7 +63,15 @@ def _works(token: str) -> bool:
         body = resp.json()
     except Exception:
         return False
-    return isinstance(body, dict) and str(body.get("notLoggedIn", "")).lower() != "true"
+    # A usable token gets the real getClasses2 shape. Checking only notLoggedIn
+    # is not enough: a rejected token can answer {"error":"true","msg":...} with
+    # no notLoggedIn key, which would pass and get stored as if it worked.
+    return (
+        isinstance(body, dict)
+        and str(body.get("notLoggedIn", "")).lower() != "true"
+        and "classes" in body
+        and "currentYearId" in body
+    )
 
 
 def login(username: str, password: str) -> str:

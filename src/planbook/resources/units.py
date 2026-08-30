@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..client import PlanbookClient
+from ..errors import ApiError
 from ..wire import intish
 
 UNIT_ACTIONS = {"add": "A", "update": "U", "delete": "D"}
@@ -85,6 +86,11 @@ def create_unit(
     before = unit_ids()
     client.post("/updateUnit", payload)
     created = unit_ids() - before
+    if not created:
+        raise ApiError(
+            "Creating the unit did not take: no new unit appeared. "
+            "The server returns HTTP 200 even when it stores nothing."
+        )
     return {
         "ok": True,
         "class_id": payload["subjectId"],
@@ -122,7 +128,13 @@ def update_unit(
     blanks the description, dates and all six section texts. Read-modify-write,
     the same as a lesson.
     """
-    existing = find_unit(client, unit_id=unit_id) or {}
+    existing = find_unit(client, unit_id=unit_id)
+    if existing is None:
+        raise ApiError(
+            f"No unit with id {unit_id}. Without the current record an update "
+            "would blank the description, dates and section texts it does not "
+            "restate."
+        )
     sections = {
         n: str(existing.get(field) or "")
         for n, field in enumerate(

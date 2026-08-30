@@ -6,7 +6,7 @@ import contextlib
 from typing import Any
 
 from ..client import PlanbookClient
-from ..errors import PlanbookError, SchemaDrift
+from ..errors import ApiError, PlanbookError, SchemaDrift
 from ..wire import intish
 
 TODO_PRIORITIES = {"low": "1", "medium": "2", "high": "3"}
@@ -127,22 +127,26 @@ def update_todo(
     silently reopens a completed to-do and resets its priority and due date.
     Read-modify-write, the same as a lesson.
     """
-    existing = find_todo(client, todo_id=todo_id) or {}
-    if existing:
-        if text is None:
-            text = str(existing.get("toDoText") or "")
-        if start is None:
-            start = str(existing.get("startDate") or "")
-        if due is None:
-            due = str(existing.get("dueDate") or "")
-        if priority is None:
-            priority = PRIORITY_NAMES.get(
-                str(existing.get("priority")), str(existing.get("priority") or "1")
-            )
-        if done is None:
-            done = str(existing.get("done")) in ("1", "true", "True")
-        if repeats is None:
-            repeats = str(existing.get("repeats") or "daily")
+    existing = find_todo(client, todo_id=todo_id)
+    if existing is None:
+        raise ApiError(
+            f"No to-do with id {todo_id}. Without the current record an update "
+            "would blank every field it does not restate."
+        )
+    if text is None:
+        text = str(existing.get("toDoText") or "")
+    if start is None:
+        start = str(existing.get("startDate") or "")
+    if due is None:
+        due = str(existing.get("dueDate") or "")
+    if priority is None:
+        priority = PRIORITY_NAMES.get(
+            str(existing.get("priority")), str(existing.get("priority") or "1")
+        )
+    if done is None:
+        done = str(existing.get("done")) in ("1", "true", "True")
+    if repeats is None:
+        repeats = str(existing.get("repeats") or "daily")
     payload = _todo_payload(
         todo_id=todo_id,
         text=text or "",

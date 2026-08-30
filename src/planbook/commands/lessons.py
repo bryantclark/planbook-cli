@@ -57,8 +57,9 @@ def _attachments_from(
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
     if args.dry_run:
-        # Offline on purpose: inspecting a payload is the safe first step and
-        # must never need a session.
+        # Offline for numbered sections. A section named by label still needs
+        # the layout, so _sections_from makes one call to resolve it - the only
+        # part of a dry-run that touches the network.
         payload, updated = api.lesson_payload(
             class_id=args.class_id,
             date=args.date,
@@ -176,6 +177,12 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
+        for key in ("title", "text", "homework", "notes"):
+            if key in item and not isinstance(item[key], str):
+                raise UsageError(
+                    f"Item {index}: '{key}' must be a string, got "
+                    f"{type(item[key]).__name__}."
+                )
         # Build every payload up front: it is pure, and it is what rejects an
         # item with nothing to write or a date that is not a date. SKILL.md
         # promises a bad item cannot half-apply a week, so this has to fail
@@ -216,7 +223,9 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
 
     client = client_from(args)
     closed = api.no_school_dates(client)
-    hit = sorted({i["date"] for i in items if i.get("date") in closed})
+    # Normalize each item's date before the membership test: closed holds the
+    # server's zero-padded dates, so a raw "9/7/2026" would miss the warning.
+    hit = sorted({d for i in items if (d := api.parse_date(i["date"])) in closed})
     if hit:
         print(
             f"warning: no-school day(s) in this batch: {', '.join(hit)}",

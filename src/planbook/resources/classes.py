@@ -144,13 +144,16 @@ def create_class(
     # /addClass does not report the id it created, and matching by name
     # afterwards breaks the moment two classes share a name. Diff the ids
     # instead.
-    before = {
-        str(c.get("cId"))
-        for c in (client.post("/getClasses2") or {}).get("classes") or []
-    }
+    def class_records() -> list[dict[str, Any]]:
+        body = client.require(
+            client.post("/getClasses2"), "classes", where="getClasses2"
+        )
+        records = body.get("classes") or []
+        return [c for c in records if isinstance(c, dict)]
+
+    before = {str(c.get("cId")) for c in class_records()}
     client.post("/addClass", payload)
-    after = (client.post("/getClasses2") or {}).get("classes") or []
-    created = [c for c in after if str(c.get("cId")) not in before]
+    created = [c for c in class_records() if str(c.get("cId")) not in before]
     if not created:
         # No new class appeared, so /addClass silently did nothing. Reporting
         # ok here would be the success-that-destroys-nothing-but-created-nothing

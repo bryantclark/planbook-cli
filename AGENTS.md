@@ -239,10 +239,12 @@ second lookup:
 | `lessons set` | keyed by class+date, no id needed | `lessons set` again (upsert) |
 | `units create` | `unit_id` | `units update/delete --unit-id` |
 | `events create` | `event_id` | `events delete --event-id` |
-| `students create` | `student_id` | `students update/delete --student-id` |
+| `students create` | `student_id` | `students update --student-id --class-id`, `students delete --student-id` |
 | `todos create` | `todo_id` | `todos update/delete --todo-id` |
 
-The id is `null` only when a concurrent create made it ambiguous; fall back to
+`students update` also needs `--class-id` (the class the student is in): it
+reads the full record first so a rename cannot blank the email, phone or photo,
+and the account-wide list carries names only. The id is `null` only when a concurrent create made it ambiguous; fall back to
 the matching `list` then. Note the `list` commands that are **not** normalised
 still use the wire spelling: `todos list` gives `toDoId`, `events list` gives
 `eventId`, `units list` gives `unitId`. `classes list` and `students list` use

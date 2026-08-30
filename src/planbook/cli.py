@@ -398,11 +398,14 @@ def build_parser() -> argparse.ArgumentParser:
     u.set_defaults(func=cmd_units_list)
     for verb, fn in (("create", cmd_units_create), ("update", cmd_units_update)):
         u = s_un.add_parser(verb, help=f"{verb} a unit")
-        if verb == "update":
+        creating = verb == "create"
+        # On update anything unnamed is carried over, so nothing but the id is
+        # required and the callback must see None rather than a default.
+        if not creating:
             u.add_argument("--unit-id", dest="unit_id", required=True)
         u.add_argument("--class-id", dest="class_id", required=True)
-        u.add_argument("--number", required=True, help="unit number, e.g. U1")
-        u.add_argument("--title", required=True)
+        u.add_argument("--number", required=creating, help="unit number, e.g. U1")
+        u.add_argument("--title", required=creating)
         u.add_argument("--description")
         u.add_argument("--start", metavar="MM/DD/YYYY", type=_date)
         u.add_argument("--end", metavar="MM/DD/YYYY", type=_date)

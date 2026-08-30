@@ -81,29 +81,74 @@ def create_unit(
     }
 
 
+def find_unit(client: PlanbookClient, *, unit_id: Any) -> dict[str, Any] | None:
+    """The saved unit, or None. There is no get-one endpoint."""
+    for record in list_units(client) or []:
+        if isinstance(record, dict) and str(record.get("unitId")) == str(
+            intish(unit_id)
+        ):
+            return record
+    return None
+
+
 def update_unit(
     client: PlanbookClient,
     *,
     unit_id: Any,
     class_id: Any,
-    number: str,
-    title: str,
-    description: str = "",
-    start: str = "",
-    end: str = "",
+    number: str | None = None,
+    title: str | None = None,
+    description: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    dry_run: bool = False,
 ) -> Any:
+    """Update a unit, carrying over whatever the caller did not name.
+
+    `/updateUnit` replaces the whole record, so a payload built from defaults
+    blanks the description, dates and all six section texts. Read-modify-write,
+    the same as a lesson.
+    """
+    existing = find_unit(client, unit_id=unit_id) or {}
+    sections = {
+        n: str(existing.get(field) or "")
+        for n, field in enumerate(
+            (
+                "unitLessonText",
+                "unitHomeworkText",
+                "unitNotesText",
+                "unitSection4Text",
+                "unitSection5Text",
+                "unitSection6Text",
+            ),
+            start=1,
+        )
+        if existing.get(field)
+    }
+
+    def keep(value: Any, *names: str) -> str:
+        if value is not None:
+            return str(value)
+        for name in names:
+            if existing.get(name) not in (None, ""):
+                return str(existing[name])
+        return ""
+
     payload = unit_payload(
         action="U",
         class_id=class_id,
         unit_id=unit_id,
-        number=number,
-        title=title,
-        description=description,
-        start=start,
-        end=end,
+        number=keep(number, "unitNum"),
+        title=keep(title, "unitTitle"),
+        description=keep(description, "unitDesc"),
+        start=keep(start, "unitStart"),
+        end=keep(end, "unitEnd"),
+        sections=sections or None,
     )
+    if dry_run:
+        return {"dry_run": True, "endpoint": "/updateUnit", "payload": payload}
     client.post("/updateUnit", payload)
-    return {"ok": True, "unit_id": payload["unitId"], "title": title}
+    return {"ok": True, "unit_id": payload["unitId"], "title": payload["unitTitle"]}
 
 
 def delete_unit(

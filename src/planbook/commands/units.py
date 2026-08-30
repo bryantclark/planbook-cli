@@ -50,26 +50,19 @@ def cmd_units_create(args: argparse.Namespace) -> None:
 
 
 def cmd_units_update(args: argparse.Namespace) -> None:
-    if args.dry_run:
-        emit(
-            {
-                "dry_run": True,
-                "endpoint": "/updateUnit",
-                "payload": _unit_dry(args, "U"),
-            }
-        )
-        return
-    client = client_from(args)
+    # Read-modify-write, so the honest --dry-run preview is the carried-over
+    # record. update_unit reads either way and only skips the write.
     emit(
         api.update_unit(
-            client,
+            client_from(args),
             unit_id=args.unit_id,
             class_id=args.class_id,
             number=args.number,
             title=args.title,
-            description=args.description or "",
-            start=args.start or "",
-            end=args.end or "",
+            description=args.description,
+            start=args.start,
+            end=args.end,
+            dry_run=args.dry_run,
         )
     )
 

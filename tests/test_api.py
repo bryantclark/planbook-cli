@@ -762,3 +762,39 @@ def test_update_todo_carries_over_what_the_caller_did_not_name():
     assert sent["priority"] == "3"
     assert sent["done"] == "1"
     assert sent["repeats"] == "weekly"
+
+
+@responses.activate
+def test_update_unit_carries_over_what_the_caller_did_not_name():
+    # /updateUnit replaces the whole record, so renaming a unit used to blank
+    # its description, dates and section texts.
+    responses.post(
+        f"{API_BASE}/getUnits",
+        json={
+            "units": [
+                {
+                    "unitId": 5,
+                    "unitNum": "U1",
+                    "unitTitle": "Old",
+                    "unitDesc": "keep me",
+                    "unitStart": "09/01/2026",
+                    "unitEnd": "09/30/2026",
+                    "unitLessonText": "<p>plan</p>",
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateUnit", json={"ok": True})
+    api.update_unit(PlanbookClient("t.t.t"), unit_id=5, class_id=1, title="New")
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [c for c in responses.calls if c.request.url.endswith("/updateUnit")][
+                -1
+            ].request.body
+        )
+    )
+    assert sent["unitTitle"] == "New"
+    assert sent["unitNum"] == "U1"
+    assert sent["unitDesc"] == "keep me"
+    assert sent["unitStart"] == "09/01/2026"
+    assert sent["unitLessonText"] == "<p>plan</p>"

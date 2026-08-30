@@ -46,27 +46,27 @@ than guessing at a changed API.
 One command, no clone. Pick whichever you have:
 
 ```bash
-uv tool install git+https://github.com/bryantclark/planbook-cli
+pipx install planbook-cli
 ```
 
 ```bash
-pipx install git+https://github.com/bryantclark/planbook-cli
+uv tool install planbook-cli
 ```
 
 Either installs the `planbook` command on your PATH in its own isolated
-environment. Don't have `uv` or `pipx`? Install one first:
+environment. Don't have `pipx` or `uv`? Install one first:
 
 ```bash
-# uv (macOS/Linux)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# or pipx
+# pipx
 python3 -m pip install --user pipx && python3 -m pipx ensurepath
+# or uv (macOS/Linux)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-To update later, `uv tool upgrade planbook-cli` (or `pipx upgrade planbook-cli`).
+To update later, `pipx upgrade planbook-cli` (or `uv tool upgrade planbook-cli`).
 
-Once this is published to PyPI (one-time setup below), install shortens to
-`pipx install planbook-cli` with no URL.
+Want the unreleased `main`? Install straight from the repo:
+`pipx install git+https://github.com/bryantclark/planbook-cli`.
 
 Working on the CLI itself instead of just using it? Clone and
 `uv pip install -e ".[dev]"`.

@@ -43,9 +43,33 @@ than guessing at a changed API.
 
 ## Install
 
+One command, no clone. Pick whichever you have:
+
 ```bash
-uv pip install -e .
+uv tool install git+https://github.com/bryantclark/planbook-cli
 ```
+
+```bash
+pipx install git+https://github.com/bryantclark/planbook-cli
+```
+
+Either installs the `planbook` command on your PATH in its own isolated
+environment. Don't have `uv` or `pipx`? Install one first:
+
+```bash
+# uv (macOS/Linux)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or pipx
+python3 -m pip install --user pipx && python3 -m pipx ensurepath
+```
+
+To update later, `uv tool upgrade planbook-cli` (or `pipx upgrade planbook-cli`).
+
+Once this is published to PyPI (one-time setup below), install shortens to
+`pipx install planbook-cli` with no URL.
+
+Working on the CLI itself instead of just using it? Clone and
+`uv pip install -e ".[dev]"`.
 
 ## Quickstart
 
@@ -147,3 +171,14 @@ tool, ask support@planbook.com about it before you build anything load-bearing.
 ## Licence
 
 MIT.
+
+## Releasing (maintainer)
+
+Merges to `main` are gathered by release-please into a version-bump PR. Merge
+that PR to tag a release; the tag triggers a PyPI publish.
+
+First publish needs a one-time PyPI setup (free): create the `planbook-cli`
+project on PyPI, add a *trusted publisher* for this repo
+(workflow `publish.yml`, environment `pypi`), and add a GitHub environment
+named `pypi`. No API tokens are stored anywhere. Until that exists the publish
+step simply fails and the git install above keeps working.

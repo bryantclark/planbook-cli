@@ -1,49 +1,13 @@
 # planbook-cli
 
-An unofficial command-line interface for [Planbook.com](https://planbook.com), built
-so that agents (and people) can read and write lesson plans without clicking through
-the web UI.
+Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
+plans and the schedule around them; reads grades and attendance — built for both people and AI agents.
 
-Planbook publishes no API and no CLI. This tool talks to the private JSON API that
-the Planbook web app itself uses, mapped by observing traffic from a signed-in
-session. See [docs/API-NOTES.md](docs/API-NOTES.md) for exactly how, and
-[AGENTS.md](AGENTS.md) for the agent-facing command reference.
-
-## Status
-
-Honest scope: this is not all of Planbook. `planbook endpoints` lists every
-endpoint and its status. Classes, lessons, units, events, to-dos, students,
-standards, assignments and attachments are mapped and exercised against a live
-account; attendance and grades are read-only. A few endpoints are `blocked`:
-they exist but demand an integer the server will not name (`filterNotes`,
-`bumpLesson`, `extendLesson`, `getStandardsReport`), so `raw` cannot reach them
-either until someone captures a real request.
-
-Anything mapped-but-unwrapped is still reachable through `planbook raw`, which
-POSTs to any path.
-
-## Agent discovery
-
-The point of this tool is that an agent reaches for it on its own when someone says
-"plan my week", without being told the CLI exists. `skills/planbook/SKILL.md` does
-that. Install it once:
-
-```bash
-mkdir -p ~/.claude/skills/planbook
-cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
-```
-
-Or install the whole repo as a plugin (`.claude-plugin/plugin.json`), which ships the
-same skill.
-
-The skill teaches the parts an agent gets wrong unaided: check `auth status` first,
-read real class ids rather than inventing them, `MM/DD/YYYY` dates, `R` is Thursday,
-lessons have six sections, `--dry-run` before bulk writes, and stop on exit 65 rather
-than guessing at a changed API.
+No published API exists yet; this tool talks to the same API the web app uses.
+See [docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details.
+Run `planbook endpoints` for current coverage.
 
 ## Install
-
-One command, no clone. Pick whichever you have:
 
 ```bash
 pipx install planbook-cli
@@ -53,123 +17,58 @@ pipx install planbook-cli
 uv tool install planbook-cli
 ```
 
-Either installs the `planbook` command on your PATH in its own isolated
-environment. Don't have `pipx` or `uv`? Install one first:
+To update: `pipx upgrade planbook-cli` or `uv tool upgrade planbook-cli`.
 
-```bash
-# pipx
-python3 -m pip install --user pipx && python3 -m pipx ensurepath
-# or uv (macOS/Linux)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+Unreleased `main`: `pipx install git+https://github.com/bryantclark/planbook-cli`.
 
-To update later, `pipx upgrade planbook-cli` (or `uv tool upgrade planbook-cli`).
-
-Want the unreleased `main`? Install straight from the repo:
-`pipx install git+https://github.com/bryantclark/planbook-cli`.
-
-Working on the CLI itself instead of just using it? Clone and
-`uv pip install -e ".[dev]"`.
+Development: clone, then `uv pip install -e ".[dev]"`.
 
 ## Quickstart
 
 ```bash
-planbook auth import                # read the token from your signed-in browser
+planbook auth import            # read the token from your browser
 planbook classes list
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" --text "<p>Chloroplasts and light reactions.</p>"
 ```
 
-Every command prints JSON to stdout, so output pipes straight into `jq` or an agent.
-
 ## Authentication
 
-**Import from your browser.** The recommended path.
+- **`auth import`** (recommended) — reads the token from your browser. On macOS, approve the Keychain prompt (**Always Allow**).
+- **`auth token`** — paste a bare JWT, `Cookie:` header, or "Copy as cURL" output.
+- **`auth login`** — username/password for Planbook-native accounts. Untested; the maintainer's account uses SSO.
+- **`auth browser`** — not recommended; identity providers refuse automated browsers.
+
+Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` overrides for CI.
+
+**Tokens last about 22 hours (1 hour for auth-server tokens).** Re-run `auth import` daily.
+
+### Getting your token by hand
+
+1. Sign in to Planbook, open DevTools **Network** tab, filter `api.planbook.com`.
+2. Reload, click the `getClasses2` request.
+3. Right-click > **Copy** > **Copy as cURL**.
+4. Run `planbook auth token` and paste.
+
+## Caveats
+
+- No published API exists yet; endpoints may change. See [docs/API-NOTES.md](docs/API-NOTES.md).
+- `app.planbook.com` is behind AWS WAF; `api.planbook.com` is not.
+- Requests are serialized. No parallelism.
+- Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and discretionary termination.
+
+There's evidence of a sanctioned API-key mechanism. If you depend on this tool, ask support@planbook.com.
+
+## Agent discovery
+
+Install the skill so Claude finds the CLI automatically:
 
 ```bash
-planbook auth import
+mkdir -p ~/.claude/skills/planbook && cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
 ```
 
-Just run it. If you are already signed in to Planbook in your browser, it reads
-the one cookie it needs, verifies it, and stores it. If you are not signed in
-yet, it opens the Planbook sign-in page and waits - sign in there (normal
-window, your usual Google session) and it picks up the token automatically, no
-second command. On macOS, approve the one-time Keychain prompt (choose Always
-Allow so it stops asking).
-
-Nothing is automated and no browser is driven, which is the point: Google
-rejects OAuth inside automation-controlled browsers ("this browser or app may
-not be secure"), and this sidesteps that entirely by not being one.
-
-macOS gates the cookie store behind the Keychain, so the first run raises a
-prompt. That prompt is the consent boundary and it is meant to be there; choose
-**Always Allow** to make later runs silent.
-
-**Paste a token**, if you would rather not grant Keychain access:
-
-```bash
-planbook auth token
-```
-
-It accepts the bare JWT, a whole `Cookie:` header, or an entire "Copy as cURL"
-paste, and verifies before storing. See "Getting your token by hand" below.
-
-**Username and password**, for accounts using Planbook's own login rather than SSO:
-
-```bash
-planbook auth login
-```
-
-**Browser sign-in** (`planbook auth browser`) drives its own browser window. It is
-kept for completeness but is not recommended: Google and other identity providers
-refuse to sign in inside an automated browser.
-
-The token is stored at `~/.config/planbook/token.json`, mode 0600.
-`PLANBOOK_TOKEN` in the environment overrides it, which is how to run in CI.
-
-**Tokens last about 22 hours, or 1 hour for auth-server tokens.** There is no refresh endpoint, so re-running
-`planbook auth import` is the daily ritual - one command, no copying.
-
-## Getting your token by hand
-
-Sign in to Planbook in your normal browser, then open DevTools:
-
-1. **Network** tab, type `api.planbook.com` in the filter box
-2. reload the page, click the **`getClasses2`** request
-3. right-click it -> **Copy** -> **Copy as cURL**
-4. run `planbook auth token` and paste the whole thing
-
-**The credential is the cookie named `U|<view-id>|.accesstoken`, not `SESSION`.**
-`api.planbook.com` issues a `SESSION` to unauthenticated callers too, so DevTools
-shows a convincing decoy beside the real thing. Copy-as-cURL avoids the whole
-problem: a request that actually succeeded cannot be carrying the wrong credential.
-
-Both cookies are HttpOnly, so neither appears in `document.cookie`.
-
-It expires eventually. When commands start exiting 77, repeat these steps.
-
-## Caveats worth reading once
-
-- **The API is undocumented and can change without notice.** When a response stops
-  looking the way this tool expects, it raises a schema error and stops rather than
-  guessing. That is deliberate: silently-wrong lesson plans are worse than a crash.
-- **`app.planbook.com` is behind an AWS WAF; `api.planbook.com` is not.** Every API
-  call this tool makes goes to the API host, identifying itself honestly in its
-  User-Agent. It never tries to defeat bot detection. The one exception is
-  `planbook auth browser`, which opens a real browser window on the app host for a
-  person to sign in - a headed browser passes the WAF the ordinary way, and the
-  headless path is not attempted because it does not and should not work. That
-  command is discouraged anyway; use `planbook auth import`.
-- **Requests are serialized on purpose.** No parallelism, no retry storms. This is
-  somebody's real planbook.
-- Planbook's terms (last updated 2020-07-01) contain no anti-automation or
-  reverse-engineering clause, but they do reserve rate limits and allow account
-  termination at their discretion. Use your own account. See the ToS section of
-  docs/API-NOTES.md.
-
-There is evidence of a sanctioned API-key mechanism (`/services/api/*` returns
-"Invalid API Key. Please contact planbook.com administrator."). If you depend on this
-tool, ask support@planbook.com about it before you build anything load-bearing.
+Or install the repo as a [plugin](.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md)
+for the full agent-facing reference.
 
 ## Licence
 
@@ -177,21 +76,14 @@ MIT.
 
 ## Releasing (maintainer)
 
-Merges to `main` are gathered by release-please into a version-bump PR. Merge
-that PR to tag a release; the same workflow then publishes to PyPI.
+Release-please gathers `main` merges into a version-bump PR. Merge it to tag and
+publish to PyPI.
 
-Commit messages drive the bump: `feat:` -> minor, `fix:` -> patch (conventional
-commits). When squash-merging a PR, give it a conventional title.
+`feat:` bumps minor, `fix:` bumps patch. Squash-merge PRs with a conventional title.
 
-One quirk: the release PR is opened by the Actions bot, and GitHub does not run
-CI on a bot-opened PR, so its required checks stay empty and it cannot be
-merged as-is. Close and immediately reopen the release PR once (`gh pr close N
-&& gh pr reopen N`) to trigger CI, then merge. To skip this step permanently,
-give release-please a fine-grained PAT (a free stored secret) instead of the
-default token.
+The release PR is opened by the Actions bot. GitHub doesn't run CI on bot-opened
+PRs, so close and reopen it once (`gh pr close N && gh pr reopen N`). To skip this
+permanently, give release-please a fine-grained PAT.
 
-First publish needs a one-time PyPI setup (free): create the `planbook-cli`
-project on PyPI, add a *trusted publisher* for this repo
-(workflow `publish.yml`, environment `pypi`), and add a GitHub environment
-named `pypi`. No API tokens are stored anywhere. Until that exists the publish
-step simply fails and the git install above keeps working.
+First publish: create `planbook-cli` on PyPI, add a trusted publisher (workflow
+`publish.yml`, environment `pypi`), add a GitHub environment named `pypi`.

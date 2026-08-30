@@ -1,46 +1,47 @@
 # Remaining work
 
-Working list. Delete this file before the final push.
+Delete before the final push.
 
-## 1. Loop review
-- [x] Pass 1 (Claude) - updatedFields data loss, events delete --dry-run
-      deleting, cross-year date compare, raw --json ignored, bulk gaps
-- [x] Pass 2 (codex) - customStart/startTime carry-over, unitId/lessonLock
-      reset, missing events create --force, todo rollback, OSError exit code
-- [ ] Pass 3 - running; must come back clean for the loop to converge
-- [ ] Comment-cleanup agent - running
+## Loop review
+- [x] Pass 1 (Claude), Pass 2 (codex), Pass 3, Pass 4 - each found real defects, all fixed
+- [ ] Pass 5 - running (correctness + comment cleanup). Loop converges when a pass is clean.
 
-## 2. Live verification - DONE
-- [x] All 20 command groups exercised against the account
-- [x] Full CRUD: classes, lessons, todos, units, events, students, attachments
-- [x] Read-modify-write verified live on lessons and classes
-- [x] Scratch data removed (one attachment remains; no delete endpoint exists)
+Defects found and fixed across the passes:
+- token identity: two issuer claim-shapes, only one parsed -> every id null
+- full-replace data loss carried over for lessons, todos, classes, units, students
+- lessons --start-time/--end-time silently ignored by server -> removed
+- notes / standards-report unreachable -> marked blocked, not offered
+- events delete --dry-run performed the delete; classes update --dry-run ignored
+- create_class reported ok when nothing was created -> raises
+- raw -F collapsed repeated keys; raw --get/--json now mutually exclusive
+- --attach uploaded before validating all refs; dry-run omitted attachments
+- dates now validated locally (parse_date) instead of reaching a Java NPE
+- EOFError from an unattended prompt now exits 64
+- every create returns the new id for chaining
 
-Found and fixed in the sweep:
-- token identity claims: two issuer shapes, only one parsed -> every id null
-- teacher/year id now fall back to a live lookup
-- lessons --start-time/--end-time silently ignored by the server -> removed
-- notes and standards-report can never succeed -> marked blocked, not offered
-- ids were half positional, half flags -> all named now
+## Live verification (needs a fresh token - BLOCKED)
+Token expired mid-session (auth-server tokens last 1h). Re-auth:
+    planbook auth import && planbook auth status
+Then confirm live (unit tests pass against mocks, but these field names are
+inferred from the write side and want one live check):
+- [ ] units update carry-over: unitDesc / unitStart / unitEnd / unitSection*Text
+      really are the GET-side names
+- [ ] students update carry-over: phoneNumber / parentEmailAddress / birthDate
+      really are the getStudentsServlet names
+- [ ] every create returns a correct id against the real add endpoints
 
-## 3. Gates
-- [x] pytest 75, mypy strict, ruff check + format
-- [ ] Re-run after the comment pass
-- [ ] CI green on GitHub after the final push
-
-## 4. Docs
-- [x] AGENTS.md, SKILL.md, API-NOTES corrected for all of the above
-- [x] Every documented flag cross-checked against --help (0 mismatches)
-
-## 5. Codex agent test
-- [x] integrations/codex-AGENTS.md installed to ~/.codex/AGENTS.md
-- [ ] Fresh low-context codex agent builds a week of plans, no CLI hint
-- [ ] Fix what its process notes expose
-
-## 6. Blocked - needs a captured browser request
+## Blocked - needs a captured browser request
 filterNotes, bumpLesson, extendLesson, getStandardsReport each want an integer
-the server refuses to name. Every plausible spelling tried. Attendance has no
-write endpoint at all.
+the server will not name. Attendance and grades have no write endpoint.
 
-## 7. Finish
+## Gates - green as of the last commit
+- [x] pytest 86, mypy strict, ruff check + format
+- [x] CI now runs all four gates on 3.10 and 3.13
+- [ ] CI green after the final push
+
+## Codex agent test (needs token)
+- [x] codex-AGENTS.md installed and current
+- [ ] Fresh low-context codex agent builds a week of plans, no CLI hint
+
+## Finish
 - [ ] Delete TODO.md, final push, report

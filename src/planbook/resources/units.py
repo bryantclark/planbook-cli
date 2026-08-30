@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..client import PlanbookClient
+from ..errors import ApiError
 from ..wire import intish
 
 UNIT_ACTIONS = {"add": "A", "update": "U", "delete": "D"}
@@ -85,6 +86,11 @@ def create_unit(
     before = unit_ids()
     client.post("/updateUnit", payload)
     created = unit_ids() - before
+    if not created:
+        raise ApiError(
+            "Creating the unit did not take: no new unit appeared. "
+            "The server returns HTTP 200 even when it stores nothing."
+        )
     return {
         "ok": True,
         "class_id": payload["subjectId"],

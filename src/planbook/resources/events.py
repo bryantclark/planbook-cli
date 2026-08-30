@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from ..client import PlanbookClient
-from ..errors import UsageError
+from ..errors import ApiError, UsageError
 from ..wire import intish, parse_time
 from .lessons import lessons_between
 
@@ -170,6 +170,11 @@ def create_event(
         for e in event_ids(list_events(client, start=date, end=end))
         if str(e.get("eventId") or e.get("id")) not in before
     ]
+    if not created:
+        raise ApiError(
+            "Creating the event did not take: no new event appeared. "
+            "The server returns HTTP 200 even when it stores nothing."
+        )
     result: dict[str, Any] = {"ok": True, "title": title, "date": date}
     result["event_id"] = created[0].get("eventId") if len(created) == 1 else None
     return result

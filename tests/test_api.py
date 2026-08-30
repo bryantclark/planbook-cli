@@ -504,7 +504,13 @@ def test_no_school_event_allowed_with_force():
     # --force must bypass the guard AND actually send noSchool=true; the old
     # test only checked ok, so it would have passed even if force did nothing.
     responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
-    responses.post(f"{API_BASE}/getEvents", json={"events": []})
+    # Empty before the write, one event after: the id-diff must find it.
+    responses.add(responses.POST, f"{API_BASE}/getEvents", json={"events": []})
+    responses.add(
+        responses.POST,
+        f"{API_BASE}/getEvents",
+        json={"events": [{"eventId": 555, "eventTitle": "Holiday"}]},
+    )
     responses.post(f"{API_BASE}/addEvent", json={"events": []})
     result = api.create_event(
         PlanbookClient("t.t.t"),
@@ -523,6 +529,7 @@ def test_no_school_event_allowed_with_force():
     )
     assert sent["noSchool"] == "true"
     assert sent["updatedFields"] == "extraDays"
+    assert result["event_id"] == 555
 
 
 @responses.activate
@@ -877,3 +884,67 @@ def test_update_student_refuses_when_the_student_is_not_in_the_class():
     responses.post(f"{API_BASE}/getStudentsServlet", json={"students": []})
     with pytest.raises(ApiError):
         api.update_student(PlanbookClient("t.t.t"), student_id=7, class_id=1)
+
+
+@responses.activate
+def test_update_student_carries_over_the_photo_url():
+    # studentPhotoUrl is a real field the full-replace endpoint would blank.
+    responses.post(
+        f"{API_BASE}/getStudentsServlet",
+        json={
+            "students": [
+                {
+                    "studentId": 7,
+                    "firstName": "Ada",
+                    "lastName": "Lovelace",
+                    "studentPhotoUrl": "https://s3/photo.jpg",
+                }
+            ]
+        },
+    )
+    responses.post(f"{API_BASE}/updateStudentServlet", json={"ok": True})
+    api.update_student(
+        PlanbookClient("t.t.t"), student_id=7, class_id=1, last_name="Byron"
+    )
+    sent = dict(
+        urllib.parse.parse_qsl(
+            [
+                c
+                for c in responses.calls
+                if c.request.url.endswith("/updateStudentServlet")
+            ][-1].request.body
+        )
+    )
+    assert sent["studentPhotoUrl"] == "https://s3/photo.jpg"
+
+
+@responses.activate
+def test_find_student_raises_on_shape_drift_not_not_found():
+    responses.post(f"{API_BASE}/getStudentsServlet", json={"unexpected": 1})
+    with pytest.raises(SchemaDrift):
+        api.find_student(PlanbookClient("t.t.t"), student_id=7, class_id=1)
+
+
+@responses.activate
+def test_create_student_raises_when_nothing_was_created():
+    responses.post(f"{API_BASE}/services/planbook/student/getAllFromSchool", json={})
+    responses.post(f"{API_BASE}/addStudentServlet", json={"ok": True})
+    with pytest.raises(ApiError):
+        api.create_student(
+            PlanbookClient("t.t.t"), first_name="Ada", last_name="Lovelace"
+        )
+
+
+@responses.activate
+def test_create_unit_raises_when_nothing_was_created():
+    responses.post(f"{API_BASE}/getUnits", json={"units": []})
+    responses.post(f"{API_BASE}/updateUnit", json={"ok": True})
+    with pytest.raises(ApiError):
+        api.create_unit(PlanbookClient("t.t.t"), class_id=1, number="U1", title="Intro")
+
+
+@responses.activate
+def test_update_todo_raises_on_a_missing_id_instead_of_blanking():
+    responses.post(f"{API_BASE}/getToDos", json={"toDos": []})
+    with pytest.raises(ApiError):
+        api.update_todo(PlanbookClient("t.t.t"), todo_id=999, text="x")

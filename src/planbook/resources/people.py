@@ -59,6 +59,8 @@ def student_payload(
     parent_email: str = "",
     birthdate: str = "",
     middle_name: str = "",
+    photo_url: str = "",
+    district_id: str = "0",
 ) -> dict[str, str]:
     payload = {
         "studentCode": code,
@@ -70,9 +72,10 @@ def student_payload(
         "studentPhoneNumber": phone,
         "parentEmailAddress": parent_email,
         "studentBirthDate": birthdate,
-        "schoolDistrictId": "0",
+        "schoolDistrictId": district_id or "0",
         "userMode": "T",
-        "studentPhotoUrl": "",
+        # A full-replace endpoint: a saved photo is lost unless carried over.
+        "studentPhotoUrl": photo_url,
     }
     if student_id:
         payload["studentId"] = intish(student_id)
@@ -103,6 +106,11 @@ def create_student(
     before = roster_ids()
     client.post("/addStudentServlet", student_payload(**fields))
     created = roster_ids() - before
+    if not created:
+        raise ApiError(
+            "Creating the student did not take: no new student appeared. "
+            "The server returns HTTP 200 even when it stores nothing."
+        )
     return {
         "ok": True,
         "name": f"{fields['first_name']} {fields['last_name']}",
@@ -122,7 +130,11 @@ def find_student(
         "/getStudentsServlet", {"classId": intish(class_id), "userMode": "T"}
     )
     students = body.get("students") if isinstance(body, dict) else None
-    for record in students or []:
+    if not isinstance(students, list):
+        # Same shape check as list_students: a missing list is drift (exit 65),
+        # not a not-found student (which would wrongly blame the caller).
+        raise SchemaDrift("getStudentsServlet returned no `students` list.")
+    for record in students:
         if isinstance(record, dict) and str(
             record.get("studentId") or record.get("id")
         ) == str(intish(student_id)):
@@ -170,6 +182,8 @@ def update_student(
         parent_email=keep("parent_email", "parentEmailAddress"),
         birthdate=keep("birthdate", "birthDate", "studentBirthDate"),
         middle_name=keep("middle_name", "middleName", "studentMiddleName"),
+        photo_url=keep("photo_url", "photoUrl", "studentPhotoUrl"),
+        district_id=keep("district_id", "schoolDistrictId", "districtId") or "0",
     )
     if dry_run:
         return {

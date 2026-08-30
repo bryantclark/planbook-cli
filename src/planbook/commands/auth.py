@@ -11,7 +11,7 @@ from .. import api, auth, browser_auth, browser_cookies, config
 from .. import token as pbtoken
 from ..cli_support import emit
 from ..client import PlanbookClient
-from ..errors import NotAuthenticated, UsageError
+from ..errors import SIGN_IN_HELP, NotAuthenticated, PlanbookError, UsageError
 
 
 def cmd_auth_login(args: argparse.Namespace) -> None:
@@ -81,14 +81,46 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
         "it to continue (choose Always Allow to skip it next time).",
         file=sys.stderr,
     )
+    # Take the longest-lived token, not the first that answers. Auth-server
+    # tokens last an hour, so a browser signed in earlier can easily hold a
+    # nearly-dead one while another holds a fresh one.
+    best: tuple[int, str, str] | None = None
     for browser, candidate in browser_cookies.search(preferred):
         if pbtoken.is_expired(candidate):
+            continue
+        info = pbtoken.describe(candidate)
+        remaining = info.get("expires_in_seconds") or 0
+        if best is not None and remaining <= best[0]:
             continue
         client = PlanbookClient(candidate, verbose=args.verbose)
         try:
             api.list_classes(client)
-        except NotAuthenticated:
-            continue  # stale token from an old sign-in; try the next browser
+        except PlanbookError:
+            # Any failure means this cookie is not usable. A token the server
+            # has stopped honouring does not always come back as notLoggedIn:
+            # one rejected here answered "date must not be null" instead.
+            continue
+        best = (remaining, browser, candidate)
+
+    # Never trade down: an already-stored session may outlive every cookie.
+    stored = config.load_session_or_none()
+    if stored and not pbtoken.is_expired(stored):
+        held = pbtoken.describe(stored).get("expires_in_seconds") or 0
+        if best is None or held >= best[0]:
+            info = pbtoken.describe(stored)
+            emit(
+                {
+                    "ok": True,
+                    "stored": str(config.session_path()),
+                    "source": "kept the stored token; no browser had a fresher one",
+                    "email": info.get("email"),
+                    "expires_in_hours": info.get("expires_in_hours"),
+                }
+            )
+            return
+
+    if best is not None:
+        _remaining, browser, candidate = best
         info = pbtoken.describe(candidate)
         path = config.save_session(candidate, info.get("email"))
         emit(
@@ -148,14 +180,27 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
     raw = config.load_session()
     info = pbtoken.describe(raw)
     client = PlanbookClient(raw, verbose=args.verbose)
-    body = api.list_classes(client)
+    status = {
+        "authenticated": True,
+        "source": "env" if config.TOKEN_ENV in os.environ else "file",
+        "email": info.get("email"),
+        "account_id": info.get("account_id"),
+        "expires_in_hours": info.get("expires_in_hours"),
+    }
+    try:
+        body = api.list_classes(client)
+    except PlanbookError as exc:
+        # This command exists to answer "am I signed in?", so it answers even
+        # when the probe fails. A token the server has stopped honouring does
+        # not reliably come back as notLoggedIn - one answered "date must not
+        # be null" - so any failure here means the session is unusable.
+        status["authenticated"] = False
+        status["reason"] = str(exc)
+        emit(status)
+        raise NotAuthenticated("The stored token was rejected." + SIGN_IN_HELP) from exc
     emit(
         {
-            "authenticated": True,
-            "source": "env" if config.TOKEN_ENV in os.environ else "file",
-            "email": info.get("email"),
-            "account_id": info.get("account_id"),
-            "expires_in_hours": info.get("expires_in_hours"),
+            **status,
             "current_year_id": body["current_year_id"],
             "class_count": len(body["classes"]),
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 from typing import Any
@@ -201,3 +202,23 @@ def build_schedule(
         slot[f"startDay{index}"] = start if teaches else ""
         slot[f"endDay{index}"] = end if teaches else ""
     return json.dumps([slot], separators=(",", ":"))
+
+
+def parse_date(value: str, *, flag: str = "date") -> str:
+    """Validate an MM/DD/YYYY date and return it unchanged.
+
+    Worth doing locally: the server answers a malformed date with a Java
+    NullPointerException about `Schedule.getScheduleStart()`, which tells a
+    caller nothing and arrives as an API error rather than a usage error.
+    """
+    try:
+        month, day, year = (int(part) for part in value.split("/"))
+        datetime.date(year, month, day)
+    except ValueError:
+        raise UsageError(
+            f"{flag}: {value!r} is not a date. Planbook wants MM/DD/YYYY, "
+            "e.g. 09/03/2026."
+        ) from None
+    if not 1000 <= year <= 9999:
+        raise UsageError(f"{flag}: {value!r} needs a four-digit year.")
+    return value

@@ -18,7 +18,8 @@ app.planbook.com in a browser: it is behind a WAF and far slower.
     planbook --help           # groups: classes lessons units events todos
                               # students grades attendance templates raw
 
-Contract: stdout is always JSON, stderr is prose, exit codes are 0 ok / 1 API
+Contract: stdout is JSON on success and empty on failure (read the exit code
+first), stderr is prose, exit codes are 0 ok / 1 API
 error / 64 bad arguments / 65 API shape changed (stop, do not retry) / 77
 re-auth needed. Dates are MM/DD/YYYY. Day letters are M T W R F S U where R is
 Thursday. `lessons set` is an upsert keyed on class + date. Use --dry-run before

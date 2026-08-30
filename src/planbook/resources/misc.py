@@ -148,6 +148,35 @@ def resolve_attachment(
     )
 
 
+def resolve_attachments(
+    client: PlanbookClient, references: list[str], *, teacher_id: Any
+) -> list[dict[str, str]]:
+    """Resolve several --attach refs, validating all before uploading any.
+
+    resolve_attachment uploads a local file as a side effect, so resolving one
+    ref at a time means a bad ref halfway through leaves earlier files uploaded
+    with nothing linking them. This checks every ref first - each must be a
+    file on disk or a known resource - then uploads.
+    """
+    known = {
+        item.get("name")
+        for item in (list_attachments(client, teacher_id=teacher_id) or [])
+        if isinstance(item, dict)
+    }
+    unknown = [
+        ref for ref in references if not Path(ref).is_file() and ref not in known
+    ]
+    if unknown:
+        raise UsageError(
+            f"{', '.join(repr(r) for r in unknown)}: neither a file on disk nor "
+            "an existing resource. Nothing was uploaded. "
+            "See `planbook attachments list`."
+        )
+    return [
+        resolve_attachment(client, ref, teacher_id=teacher_id) for ref in references
+    ]
+
+
 def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
     return client.post(
         "/getAttachmentList",

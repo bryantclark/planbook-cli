@@ -50,10 +50,9 @@ def _attachments_from(
         return None
     if client is None:
         raise UsageError("--attach needs a network connection; drop --dry-run.")
-    return [
-        api.resolve_attachment(client, ref, teacher_id=teacher_id_from(args))
-        for ref in args.attach
-    ]
+    return api.resolve_attachments(
+        client, list(args.attach), teacher_id=teacher_id_from(args)
+    )
 
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
@@ -72,14 +71,17 @@ def cmd_lessons_set(args: argparse.Namespace) -> None:
             standards=args.standard or None,
             assignments=args.assignment or None,
         )
-        emit(
-            {
-                "dry_run": True,
-                "endpoint": "/updateLesson",
-                "payload": payload,
-                "updated_fields": updated,
-            }
-        )
+        preview: dict[str, Any] = {
+            "dry_run": True,
+            "endpoint": "/updateLesson",
+            "payload": payload,
+            "updated_fields": updated,
+        }
+        if args.attach:
+            # The real run uploads local files and links existing resources;
+            # --dry-run does neither, so name what it would touch.
+            preview["attachments_pending"] = list(args.attach)
+        emit(preview)
         return
 
     client = client_from(args)
@@ -174,10 +176,11 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
-        _require_class_id(item, args, index)
-        # Build every payload up front. It is pure, and it is where value
-        # errors live (an unknown section, a bad standard id),
-        # which SKILL.md promises cannot half-apply a week.
+        # Build every payload up front: it is pure, and it is what rejects an
+        # item with nothing to write or a date that is not a date. SKILL.md
+        # promises a bad item cannot half-apply a week, so this has to fail
+        # before the first send - including the section labels, which need a
+        # lookup and so are easy to leave until the write.
         api.lesson_payload(
             class_id=_require_class_id(item, args, index),
             date=item["date"],
@@ -186,6 +189,7 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
             homework=item.get("homework"),
             notes=item.get("notes"),
             unit_id=item.get("unit_id"),
+            sections=_bulk_sections(item, args, index),
         )
 
     if args.dry_run:

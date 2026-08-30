@@ -57,7 +57,7 @@ body, not the status code.**
 
 ## Conventions
 
-- All calls are **POST**, `application/x-www-form-urlencoded`. No JSON bodies.
+- Most calls are **POST**, `application/x-www-form-urlencoded`. The exceptions are the GET-only `/services/planbook/**` family and the few JSON-body endpoints - see "Two request styles, and a GET-only family" below.
 - Booleans are `Y` / `N` (not true/false), except `fetchDay` which is literal `true`.
 - Absent integers are `0`, **never empty string** — empty triggers a server-side Java NPE:
   `Cannot invoke "java.lang.Integer.intValue()" because ... getInteger(String) is null`
@@ -125,7 +125,6 @@ Success = HTTP 200 with `error` absent. Failure = HTTP 200 with `{"error":"true"
 
 - Headless form login against `auth.planbook.com` - untested (needs credentials, and the account here uses SSO).
   Fallback: paste a cookie periodically.
-- Delete-class endpoint not captured (UI-driven cleanup only).
 - CSV import column set still unconfirmed (sample file is behind a HubSpot bot-check).
 
 ## ToS
@@ -190,7 +189,7 @@ formats to `customStart` and reading them back:
 | `9:00 AM` | `9:00 AM` |
 
 A 24-hour string is accepted without any error and the time is lost. `parse_time()`
-in `api.py` converts both forms before sending.
+in `wire.py` (re-exported by `api`) converts both forms before sending.
 
 Three separate places carry times:
 
@@ -204,6 +203,27 @@ Three separate places carry times:
 - `addEvent` -> `eventStartTime` / `eventEndTime`.
 - the class `schedules` JSON -> `startDayN` / `endDayN`, where N is Sunday-indexed.
   `getClass` echoes these back as `mondayStartTime`, `mondayEndTime`, and so on.
+
+
+## Every update endpoint is a full replace
+
+`/updateLesson`, `/updateToDo` and `/updateClass/v10` all rewrite the whole
+record. None of them honours a field mask - `updatedFields` looks like one and
+is not - so a payload built from defaults silently erases everything it did not
+restate. Each write in this CLI therefore reads first and carries over whatever
+the caller did not name.
+
+Fields that were lost this way before they were carried:
+
+| endpoint | field | what a plain rename did to it |
+|---|---|---|
+| `/updateLesson` | `lessonText`, `homeworkText`, `notesText` | emptied |
+| `/updateLesson` | `schoolWorks` | `[]` detached every assignment |
+| `/updateLesson` | `unitId`, `lessonLock`, `extraLesson`, `linkedLessonId` | reset to defaults |
+| `/updateToDo` | `priority`, `done`, `dueDate`, `repeats` | reopened the to-do at low priority |
+| `/updateClass/v10` | `classDesc`, `color`, `lessonLayoutId`, per-day times | wiped |
+
+The tell is that the response is a cheerful success either way.
 
 
 ## Standards and assignments on a lesson
@@ -320,7 +340,7 @@ Found by loading each page and reading `performance.getEntriesByType('resource')
 | students | `/addStudentServlet` `/updateStudentServlet` `/deleteStudentServlet` (POST form), `/getStudentsServlet` (POST, needs `classId`+`userMode`), `/services/planbook/student/getAllFromSchool` (all students as `{id: "Last, First"}`) |
 | attendance | `/services/planbook/attendance/get`, `/services/planbook/attendance/getLessonsByDate` (both GET) |
 | grades | `/getStudentScoresServlet` (POST; wants a subject, `classId` alone gives `"subject" is null`), `/services/planbook/student/studentsTagged` |
-| templates | `/getTemplates`, `/addTemplate`, `/updateTemplate`, `/deleteTemplate` (all exist; "Cannot parse null string" until given ids) |
+| templates | `/services/planbook/template/get` (GET, mapped), `/addTemplate`, `/updateTemplate`, `/deleteTemplate` (exist; "Cannot parse null string" until given ids) |
 | lesson banks | no endpoints of their own - the page reuses `/getLessonsEvents` and `/getUnits`, and `getClasses2` already returns `lessonBanks` |
 | lesson moves | `/bumpLesson`, `/extendLesson` exist (Integer NPE until given ids). `/copyLesson` and `/swapLessons` return the SPA page - not real names |
 | seating charts | no page-level endpoints observed |

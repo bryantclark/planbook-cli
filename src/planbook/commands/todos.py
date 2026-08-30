@@ -33,7 +33,7 @@ def cmd_todos_update(args: argparse.Namespace) -> None:
             todo_id=args.todo_id,
             text=args.text,
             start=args.start,
-            due=args.due or "",
+            due=args.due,
             priority=args.priority,
             done=args.done,
             repeats=args.repeats,

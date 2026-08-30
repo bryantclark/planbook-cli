@@ -11,13 +11,16 @@ session. See [docs/API-NOTES.md](docs/API-NOTES.md) for exactly how, and
 
 ## Status
 
-Honest scope: this is not all of Planbook. Run `planbook endpoints` for the
-current count of mapped / partial / observed endpoints. Classes, lessons, units,
-events, to-dos, students, standards, assignments and attachments are mapped and
-exercised against a live account; attendance is read-only; notes and a couple of
-lesson-move endpoints are reachable only through `raw`.
+Honest scope: this is not all of Planbook. `planbook endpoints` lists every
+endpoint and its status. Classes, lessons, units, events, to-dos, students,
+standards, assignments and attachments are mapped and exercised against a live
+account; attendance and grades are read-only. A few endpoints are `blocked`:
+they exist but demand an integer the server will not name (`filterNotes`,
+`bumpLesson`, `extendLesson`, `getStandardsReport`), so `raw` cannot reach them
+either until someone captures a real request.
 
-Anything unmapped is still reachable through `planbook raw`, which POSTs to any path.
+Anything mapped-but-unwrapped is still reachable through `planbook raw`, which
+POSTs to any path.
 
 ## Agent discovery
 
@@ -47,7 +50,7 @@ uv pip install -e .
 ## Quickstart
 
 ```bash
-planbook auth login                 # prompts for email + password
+planbook auth import                # read the token from your signed-in browser
 planbook classes list
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" --text "<p>Chloroplasts and light reactions.</p>"
@@ -97,12 +100,10 @@ refuse to sign in inside an automated browser.
 The token is stored at `~/.config/planbook/token.json`, mode 0600.
 `PLANBOOK_TOKEN` in the environment overrides it, which is how to run in CI.
 
-**Tokens last about 22 hours.** There is no refresh endpoint, so re-running
+**Tokens last about 22 hours, or 1 hour for auth-server tokens.** There is no refresh endpoint, so re-running
 `planbook auth import` is the daily ritual - one command, no copying.
 
 ## Getting your token by hand
-
-Sign in to Planbook in your normal browser, then:
 
 Sign in to Planbook in your normal browser, then open DevTools:
 

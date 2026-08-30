@@ -10,7 +10,7 @@ from typing import Any
 
 from ..client import PlanbookClient
 from ..errors import SchemaDrift, UsageError
-from ..wire import Payload, intish, yn
+from ..wire import Payload, intish, parse_date, yn
 from .misc import list_assignments, settings
 
 
@@ -184,7 +184,8 @@ def lesson_payload(
 
     payload: dict[str, Any] = {
         "classId": intish(class_id),
-        "customDate": date,
+        # Checked here rather than only in argparse so bulk items get it too.
+        "customDate": parse_date(date),
         "unitId": intish(unit_id),
         "extraLesson": "0",
         "lessonId": "0",
@@ -206,18 +207,6 @@ def lesson_payload(
         "strategySent": yn(True),
         "unitStandardsSent": yn(True),
         "statusesSent": yn(True),
-        "schoolWorks": json.dumps(
-            [
-                {
-                    "type": "ASSIGNMENT",
-                    "typeId": int(a),
-                    "shortValueText": "",
-                    "longValueText": 0,
-                }
-                for a in (assignments or [])
-            ],
-            separators=(",", ":"),
-        ),
         "updatedFields": ",".join(updated),
         "oldLesson": "",
         "fetchDay": "true",
@@ -235,6 +224,22 @@ def lesson_payload(
         # accepted and clears the set instead. Sending the ids replaces
         # whatever was attached, so pass the full set you want.
         payload["standardDBIds"] = [str(s) for s in standards] or [""]
+    if assignments is not None:
+        # Only sent when the caller named assignments. Sending "[]" otherwise
+        # detaches whatever the lesson already had, so a plain rename used to
+        # silently drop them.
+        payload["schoolWorks"] = json.dumps(
+            [
+                {
+                    "type": "ASSIGNMENT",
+                    "typeId": int(a),
+                    "shortValueText": "",
+                    "longValueText": 0,
+                }
+                for a in assignments
+            ],
+            separators=(",", ":"),
+        )
     return payload, updated
 
 
@@ -328,6 +333,11 @@ def set_lesson(
         # exists; on a brand-new date the id is 0 and the server drops them.
         existing = find_lesson(client, class_id=class_id, date=date)
         if existing is None:
+            # Two writes for a new lesson: create it with its text, then attach.
+            # The first write carries the full title/text/homework, so if the
+            # second fails the lesson still holds the caller's content - only
+            # the attachments are missing. Deleting it on failure would throw
+            # that content away, so the error is left to propagate instead.
             client.post(
                 "/updateLesson", dict(payload, standardDBIds="", schoolWorks="[]")
             )
@@ -352,11 +362,10 @@ def set_lesson(
 
 
 def get_week(client: PlanbookClient, *, monday: str, weeks: int = 1) -> Any:
-    """Fetch lessons and events starting from a Monday.
+    """The undecoded `/getLessonsEvents` body for a week starting on a Monday.
 
-    Only partially mapped - `days` is keyed by integer offset, not date, and
-    the lesson payload inside is undecoded. Output is passed through raw.
-    See docs/API-NOTES.md ("Open").
+    Backs `lessons week --raw`. `read_week` is the decoded form; this keeps
+    the fields it drops.
     """
     return client.post(
         "/getLessonsEvents",

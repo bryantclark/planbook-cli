@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..client import PlanbookClient
-from ..errors import SchemaDrift
+from ..errors import ApiError, SchemaDrift
 from ..wire import intish
 
 
@@ -84,12 +84,63 @@ def create_student(client: PlanbookClient, **fields: Any) -> dict[str, Any]:
     return {"ok": True, "name": f"{fields['first_name']} {fields['last_name']}"}
 
 
-def update_student(
-    client: PlanbookClient, *, student_id: Any, **fields: Any
-) -> dict[str, Any]:
-    client.post(
-        "/updateStudentServlet", student_payload(student_id=student_id, **fields)
+def find_student(
+    client: PlanbookClient, *, student_id: Any, class_id: Any
+) -> dict[str, Any] | None:
+    """The raw student record from the per-class endpoint, or None.
+
+    There is no get-one endpoint, and the account-wide list returns names
+    only, so a full record needs the class the student sits in.
+    """
+    body = client.post(
+        "/getStudentsServlet", {"classId": intish(class_id), "userMode": "T"}
     )
+    students = body.get("students") if isinstance(body, dict) else None
+    for record in students or []:
+        if isinstance(record, dict) and str(
+            record.get("studentId") or record.get("id")
+        ) == str(intish(student_id)):
+            return record
+    return None
+
+
+def update_student(
+    client: PlanbookClient, *, student_id: Any, class_id: Any, **fields: Any
+) -> dict[str, Any]:
+    """Update a student, carrying over whatever the caller did not name.
+
+    `/updateStudentServlet` replaces the whole record, so a payload built from
+    defaults blanks the email, phone, parent email, code and birthdate. Reads
+    the current record first, keyed by the class the student is in.
+    """
+    existing = find_student(client, student_id=student_id, class_id=class_id)
+    if existing is None:
+        raise ApiError(
+            f"No student {student_id} in class {class_id}. Pass the --class-id "
+            "the student is in so their other fields are not lost."
+        )
+
+    def keep(name: str, *raw_keys: str) -> str:
+        value = fields.get(name)
+        if value not in (None, ""):
+            return str(value)
+        for key in raw_keys:
+            if existing.get(key) not in (None, ""):
+                return str(existing[key])
+        return ""
+
+    payload = student_payload(
+        student_id=student_id,
+        first_name=keep("first_name", "firstName"),
+        last_name=keep("last_name", "lastName"),
+        code=keep("code", "code", "studentCode"),
+        email=keep("email", "emailAddress", "studentEmailAddress"),
+        phone=keep("phone", "phoneNumber", "studentPhoneNumber"),
+        parent_email=keep("parent_email", "parentEmailAddress"),
+        birthdate=keep("birthdate", "birthDate", "studentBirthDate"),
+        middle_name=keep("middle_name", "middleName", "studentMiddleName"),
+    )
+    client.post("/updateStudentServlet", payload)
     return {"ok": True, "student_id": intish(student_id)}
 
 

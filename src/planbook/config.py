@@ -55,6 +55,14 @@ def load_session() -> str:
         raise NotAuthenticated(f"Token file at {path} is unreadable: {exc}") from exc
 
 
+def load_session_or_none() -> str | None:
+    """The stored token, or None when there is not a usable one."""
+    try:
+        return load_session()
+    except NotAuthenticated:
+        return None
+
+
 def clear_session() -> bool:
     path = session_path()
     if path.exists():

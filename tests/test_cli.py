@@ -3,7 +3,7 @@ import json
 import pytest
 import responses
 
-from planbook import cli
+from planbook import api, cli
 from planbook.client import API_BASE
 
 
@@ -206,3 +206,33 @@ def test_raw_json_actually_sends_json(capsys, session_file):
     responses.post(f"{API_BASE}/x", json={})
     assert cli.main(["raw", "/x", "-F", "a=1", "--json"]) == 0
     assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+
+def test_events_create_dry_run_previews_the_payload_the_write_would_send(capsys):
+    # The preview used to build its own payload and had drifted from the real
+    # one, omitting updatedFields and updateCurrentEvent.
+    assert (
+        cli.main(
+            ["events", "create", "--title", "T", "--date", "09/01/2026", "--dry-run"]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)["payload"]
+    assert payload == api.new_event_payload(title="T", date="09/01/2026")
+
+
+def test_auth_login_without_stdin_exits_64_not_traceback(monkeypatch):
+    # A prompt with no input (CI, a pipe) must honour the exit-code contract.
+    def no_input(*_a, **_k):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_input)
+    monkeypatch.setattr("getpass.getpass", no_input)
+    assert cli.main(["auth", "login"]) == 64
+
+
+def test_raw_get_and_json_are_mutually_exclusive():
+    # argparse rejects the pair before dispatch, exiting 64 via _Parser.error.
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["raw", "/x", "--get", "--json"])
+    assert exc.value.code == 64

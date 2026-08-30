@@ -57,8 +57,9 @@ def _attachments_from(
 
 def cmd_lessons_set(args: argparse.Namespace) -> None:
     if args.dry_run:
-        # Offline on purpose: inspecting a payload is the safe first step and
-        # must never need a session.
+        # Offline for numbered sections. A section named by label still needs
+        # the layout, so _sections_from makes one call to resolve it - the only
+        # part of a dry-run that touches the network.
         payload, updated = api.lesson_payload(
             class_id=args.class_id,
             date=args.date,

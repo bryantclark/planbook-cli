@@ -36,6 +36,10 @@ ignore = ["E501"]          # line length is formatted, not linted
 
 [tool.mypy]
 python_version = "3.10"
+# macOS-targeted (browser default detection, Keychain), so type-check as
+# darwin. Without this, mypy on a Linux CI runner narrows sys.platform and
+# marks the whole darwin-only default_browser path unreachable.
+platform = "darwin"
 files = ["src/planbook"]
 strict = true
 warn_unreachable = true

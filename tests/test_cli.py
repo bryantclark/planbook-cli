@@ -284,3 +284,11 @@ def test_auth_status_keeps_stdout_empty_on_failure(capsys, monkeypatch, tmp_path
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
     assert "rejected" in captured.err
+
+
+def test_bulk_rejects_a_non_string_text_field(tmp_path):
+    # A bulk item with a numeric title must be a usage error, not a payload
+    # with a non-string value silently sent to the server.
+    f = tmp_path / "b.json"
+    f.write_text(json.dumps([{"date": "09/03/2026", "title": 123}]))
+    assert cli.main(["lessons", "bulk", str(f), "--class-id", "1", "--dry-run"]) == 64

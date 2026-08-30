@@ -176,6 +176,12 @@ def cmd_lessons_bulk(args: argparse.Namespace) -> None:
                 f"Item {index} has unknown key(s): {', '.join(sorted(unknown))}. "
                 f"Accepted: {', '.join(sorted(BULK_KEYS))}."
             )
+        for key in ("title", "text", "homework", "notes"):
+            if key in item and not isinstance(item[key], str):
+                raise UsageError(
+                    f"Item {index}: '{key}' must be a string, got "
+                    f"{type(item[key]).__name__}."
+                )
         # Build every payload up front: it is pure, and it is what rejects an
         # item with nothing to write or a date that is not a date. SKILL.md
         # promises a bad item cannot half-apply a week, so this has to fail

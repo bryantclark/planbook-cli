@@ -1,6 +1,7 @@
-# Planbook private API — recon notes
+# Planbook API notes
 
-Reverse-engineered 2026-08-28 from a live session. Undocumented; can change without notice.
+Mapped 2026-08-28 by observing the web app's network traffic. No published API
+docs exist; endpoints can change without notice.
 
 ## Hosts
 

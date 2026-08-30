@@ -1,16 +1,11 @@
 # planbook-cli
 
 Unofficial CLI for [Planbook.com](https://planbook.com). Reads and writes lesson
-plans through the private API that the web app uses.
+plans, units, events, grades, and more — built for both people and AI agents.
 
-Built against the web app's API — no published API exists yet. See
-[docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details and
-[docs/RECON.md](docs/RECON.md) for how to map more.
-[AGENTS.md](AGENTS.md) is the agent-facing command reference.
-
-## Status
-
-Run `planbook endpoints` for coverage.
+No published API exists yet; this tool talks to the same API the web app uses.
+See [docs/API-NOTES.md](docs/API-NOTES.md) for endpoint details.
+Run `planbook endpoints` for current coverage.
 
 ## Install
 
@@ -27,17 +22,6 @@ To update: `pipx upgrade planbook-cli` or `uv tool upgrade planbook-cli`.
 Unreleased `main`: `pipx install git+https://github.com/bryantclark/planbook-cli`.
 
 Development: clone, then `uv pip install -e ".[dev]"`.
-
-## Agent discovery
-
-Install the skill so agents find the CLI without being told:
-
-```bash
-mkdir -p ~/.claude/skills/planbook
-cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
-```
-
-Or install the repo as a plugin (`.claude-plugin/plugin.json`).
 
 ## Quickstart
 
@@ -74,6 +58,10 @@ Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` ove
 - Planbook's terms (2020-07-01) have no anti-automation clause but reserve rate limits and discretionary termination.
 
 There's evidence of a sanctioned API-key mechanism. If you depend on this tool, ask support@planbook.com.
+
+## Agent discovery
+
+Install the [skill](skills/planbook/SKILL.md) so Claude finds the CLI automatically, or install the repo as a [plugin](/.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md) for the full agent-facing reference.
 
 ## Licence
 

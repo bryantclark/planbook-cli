@@ -6,8 +6,13 @@ import responses
 from planbook.client import API_BASE
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def isolated_config(monkeypatch, tmp_path):
+    """Every test runs against an empty config, never the developer's own.
+
+    Without this, a test that forgets `session_file` reads the real stored
+    session locally and only fails on CI, where there is none.
+    """
     home = tmp_path / "home"
     xdg = tmp_path / "xdg"
     home.mkdir()

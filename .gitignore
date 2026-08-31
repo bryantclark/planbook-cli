@@ -1,8 +1,26 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 dist/
 build/
-*.egg-info/
+
+# Tool caches. Each of these tools writes its own .gitignore inside the
+# directory, so listing them here is belt-and-braces - delete that file and
+# the cache would otherwise land in a commit.
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Agent worktrees. These are checkouts of this same repo; committing one
+# would nest the repository inside itself.
+.claude/worktrees/
+
+# Local
 .env
 .DS_Store
+.idea/
+.vscode/

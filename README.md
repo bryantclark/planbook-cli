@@ -32,10 +32,33 @@ Development: clone, then `uv pip install -e ".[dev]"`.
 
 ```bash
 planbook auth import            # read the token from your browser
-planbook classes list
+planbook check                  # session, hours left, and your class ids
 planbook lessons set --class-id 12345678 --date 09/03/2026 \
   --title "Photosynthesis" --text "<p>Chloroplasts and light reactions.</p>"
 ```
+
+## For agents
+
+The CLI describes itself, so nothing has to be inferred from help text or
+guessed from prose:
+
+```bash
+planbook schema                 # every command, flag and error kind as JSON
+planbook check                  # the one-call preflight
+planbook --error-json <cmd>     # failures as {"error": {kind, code, retryable, remedy}}
+```
+
+- stdout is JSON on success and empty on failure. Branch on the exit code.
+- `-` on any text flag reads that value from stdin, so HTML never goes through
+  a shell.
+- Every list answers to `id`; `--raw` returns the untouched wire body.
+- Every write has `--dry-run`, and is read back before it reports success.
+- Deletes that destroy records you did not name require `--yes` and report a
+  `cascade` count.
+- `lessons bulk --journal FILE` makes an interrupted batch resumable with
+  `--resume`.
+
+[AGENTS.md](AGENTS.md) is the full contract.
 
 ## Authentication
 
@@ -70,11 +93,11 @@ Token storage: `~/.config/planbook/token.json` (mode 0600). `PLANBOOK_TOKEN` ove
 Install the skill so Claude finds the CLI automatically:
 
 ```bash
-mkdir -p ~/.claude/skills/planbook && cp skills/planbook/SKILL.md ~/.claude/skills/planbook/
+mkdir -p ~/.claude/skills/planbook && cp skills/planbook/SKILL.md AGENTS.md docs/API-NOTES.md ~/.claude/skills/planbook/
 ```
 
-Or install the repo as a [plugin](.claude-plugin/plugin.json). See [AGENTS.md](AGENTS.md)
-for the full agent-facing reference.
+`SKILL.md` carries the contract on its own; the other two are the full reference
+it points at. Or install the repo as a [plugin](.claude-plugin/plugin.json).
 
 ## Licence
 
@@ -85,7 +108,9 @@ MIT.
 Release-please gathers `main` merges into a version-bump PR. Merge it to tag and
 publish to PyPI.
 
-`feat:` bumps minor, `fix:` bumps patch. Squash-merge PRs with a conventional title.
+`feat:` bumps minor, `fix:` bumps patch. Squash-merge PRs with a conventional
+title. To force a specific version, put `Release-As: X.Y.Z` on its own line in
+the squash commit body.
 
 The release PR is opened by the Actions bot. GitHub doesn't run CI on bot-opened
 PRs, so close and reopen it once (`gh pr close N && gh pr reopen N`). To skip this

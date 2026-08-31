@@ -19,7 +19,8 @@ reads browser cookie stores so `auth import` needs no manual paste. `hatchling` 
 ## Common commands
 
 - **Dev install**: `uv pip install -e ".[dev]"`
-- **Test**: `pytest`
+- **Test**: `pytest` — `pyproject.toml` puts `src` on the path, so this always
+  tests the checked-out source rather than whichever `planbook` is installed
 - **Lint**: `ruff check src tests`
 - **Format**: `ruff format src tests`
 - **Type check**: `mypy` (reads `pyproject.toml`)

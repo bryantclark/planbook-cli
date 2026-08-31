@@ -22,8 +22,6 @@ detail about their platform.
 - It is sent to `api.planbook.com` over HTTPS as `Authorization: Bearer`, and
   nowhere else. There is no telemetry, no analytics, and no other network
   destination in this codebase.
-- This tool never asks for your Planbook password. There is no password path in
-  it at all.
 - `--verbose` logs request URLs and field *names* to stderr. It does not log
   the token or field values.
 - `auth logout` deletes the stored token.
@@ -44,8 +42,10 @@ Use your own account only.
 
 ## Known limits
 
-- The private API is undocumented and can change without notice; the tool fails
-  loudly rather than guessing when a response changes shape.
+- The private API is undocumented and can change without notice. Where a
+  response's overall shape is wrong the tool raises `SchemaDrift` (exit 65)
+  rather than guessing. That check is on envelopes, not on every field: a
+  renamed field inside a record can still come back as a default or `null`.
 - Writes replace whole records server-side. Every write reads first and carries
   existing fields over. `--dry-run` is available on writes.
 - Creating a no-school event permanently deletes that date's lessons. This is

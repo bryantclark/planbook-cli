@@ -11,7 +11,6 @@ from ..cli_support import emit
 from ..client import PlanbookClient
 from ..contract import CONTRACT_VERSION
 from ..endpoints import ENDPOINTS
-from ..errors import SIGN_IN_HELP, ApiError, NotAuthenticated
 from ..resources.classes import list_classes
 
 
@@ -34,14 +33,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     raw = config.load_session()
     info = pbtoken.describe(raw)
     client = PlanbookClient(raw, verbose=args.verbose)
-    try:
-        body = list_classes(client)
-    except ApiError as exc:
-        # A token the server has stopped honouring does not reliably come back
-        # as notLoggedIn - one answered "date must not be null".
-        raise NotAuthenticated(
-            f"The stored token was rejected: {exc}" + SIGN_IN_HELP
-        ) from exc
+    body = list_classes(client)
     emit(
         {
             "contract": CONTRACT_VERSION,

@@ -236,7 +236,6 @@ allow discretionary termination. Risk is account termination, not legal.
 
 ## Open
 
-- Headless form login against `auth.planbook.com` — untested; account uses SSO.
 - CSV import columns unconfirmed (sample file behind a HubSpot bot-check).
 - Carry-over field names for `units update` (`unitDesc`, `unitStart`, `unitEnd`,
   the six section texts) and `students update` (`phoneNumber`,

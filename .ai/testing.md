@@ -10,7 +10,11 @@ paths:
 ## No network calls
 
 Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
-Response fixtures are inline in the `test_*.py` modules. `conftest.py` holds config isolation only.
+`conftest.py` holds config isolation and the wire-record builders (`saved_lesson`,
+`class_record`, `student_record`, `unit_record`, `todo_record`, `event_record`,
+`schedule_row`) plus the `stub()` helper. Build a stub from those and pass the
+field the test is about as an override, so the odd value stays visible in the
+test rather than buried in a default.
 
 ## What to test
 

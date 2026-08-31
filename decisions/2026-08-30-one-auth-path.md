@@ -1,31 +1,31 @@
 ---
 name: one-auth-path
 date: 2026-08-30
-description: Password login and the automated browser are removed; import is the only sign-in
+description: Token import is the only sign-in, with paste as the manual fallback
 tags: [auth]
 ---
 
 # One auth path
 
-`auth login` (Spring form login with a password) and `auth browser` (Playwright
-driving a headed browser) are removed. `auth import` stays, with `auth token` as
-the manual fallback.
+The CLI signs in one way: `planbook auth import` reads the bearer token from the
+cookie store of a browser the teacher is already signed in to. `auth token`
+accepts one pasted by hand when the cookie store can't be read.
 
 ## Why
 
-- The password path was untested and unusable: the accounts in question use SSO,
-  so the form login never worked. A command that asks for a password it can't
-  use is the worst credential surface in the tool.
-- The browser path drove an automated browser. Identity providers refuse these,
-  and it reads as impersonation. It pulled in an optional Playwright dependency.
-- Neither is what an official integration would use. Both reached the same bearer
-  token `auth import` already gets without automating anything.
+- Every request the API accepts is authorised by that bearer token. Any other
+  sign-in mechanism would end at the same token, with more moving parts and a
+  wider credential surface for no gain.
+- The accounts this was built for sign in through SSO. Only the identity
+  provider's own browser flow can complete that, so the CLI stays out of it and
+  reads the result.
+- One path is one thing to document, one thing to test, and one thing to
+  replace.
 
 ## Consequence
 
-The `browser` optional dependency group is gone. `LoginFailed` now only comes
-from the cookie reader. Sign-in is: sign in to Planbook in your browser, then
-`planbook auth import`.
+`LoginFailed` comes only from the cookie reader. The CLI has no credential
+prompt, and holds nothing but the token.
 
 Replacing both remaining paths with a real OAuth client is tracked in
 [docs/PRODUCTION-READINESS.md](../docs/PRODUCTION-READINESS.md).

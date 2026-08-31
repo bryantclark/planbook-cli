@@ -15,23 +15,61 @@ Don't drive `app.planbook.com` in a browser — it's behind a WAF.
 ### First, always
 
 ```bash
-planbook auth status
+planbook check
 ```
 
-- **Exit 0** — signed in. Output names the account and hours of token left.
+One round trip answers all three things every later command needs: whether the
+session works, how many hours of token are left, and the real class ids.
+
+- **Exit 0** — signed in. Output carries the account, `expires_in_hours`,
+  `current_year_id` and a `classes` list of `{id, name, start_date, end_date, days}`.
 - **Exit 77** — not signed in. Stderr contains the sign-in URL and exact command.
   Relay it to the user verbatim and stop.
 
-Then get real class ids:
+`planbook auth status` still works and reports the same session facts without
+the class list.
+
+### Learn the surface in one call
 
 ```bash
-planbook classes list
+planbook schema
 ```
+
+Every command, flag, type, default, and error kind as JSON, generated from the
+parser. Read this instead of running `--help` per group. It reports the
+contract version; branch on `contract` if you cache what you learned.
 
 ### Output contract
 
 - **stdout** is JSON on success, empty on failure. Exception: `lessons bulk` prints per-item results and exits 1 when any item failed.
-- **stderr** is prose diagnostics. Never parse it.
+- **stderr** is prose diagnostics by default. Never parse the prose.
+- **`--error-json`** (or `PLANBOOK_ERROR_JSON=1`) replaces the prose with one
+  JSON object, which is what an agent should use:
+
+  ```json
+  {"error": {"contract": "1.3", "kind": "SchemaDrift", "code": 65,
+             "retryable": false, "message": "...", "remedy": "...",
+             "details": {}}}
+  ```
+
+  `kind` is stable, `retryable` says whether running it again could work, and
+  `remedy` says what to do. `planbook schema` lists every kind.
+- **`updated_fields`** appears on every write result and every `--dry-run`
+  preview: the fields you named, in the same snake_case vocabulary the lists
+  use (`start_date`, not `start`). Every one was read back and checked. A
+  create names nothing, so the list is empty there.
+- **`cascade`** appears only when a write destroys records you did not name.
+  It counts them, so `--dry-run` shows the blast radius before you commit.
+- **`effects`** appears only when a write did something beyond the fields you
+  named, so its absence is the signal that nothing else happened:
+
+  | key | on | meaning |
+  |---|---|---|
+  | `standards`, `assignments`, `attachments` | `lessons set` | what the lesson now links to |
+  | `attachments_pending` | `lessons set` | files uploaded but not yet linked |
+  | `scope` | `events delete` | `series` or `occurrence` |
+  | `replaces_existing` | `attachments upload` | names that overwrote a stored file in every lesson linked to it, or `null` when the lookup failed |
+
 - **Exit codes:**
 
   | code | meaning | action |
@@ -45,6 +83,10 @@ planbook classes list
 
 ### Formats
 
+- **stdin:** pass `-` to any text flag (`--text`, `--notes`, `--homework`,
+  `--title`, `--section KEY=-`) and to `lessons bulk -` to read that value from
+  stdin. Use it for HTML — quoting markup through a shell is where calls get
+  mangled. One `-` per invocation.
 - **Dates:** `MM/DD/YYYY`. Not ISO.
 - **Day letters:** `M T W R F S U`. R = Thursday, U = Sunday.
 - **Times:** the CLI accepts 24-hour (`14:30`) or 12-hour (`9:00 AM`).
@@ -71,16 +113,32 @@ Run `planbook <group> --help` for exact flags.
 | `attachments` | `list`, `upload`; link with `lessons set --attach` |
 | `raw` | POST to any endpoint; `--get` for GET paths, `--json` for JSON bodies |
 | `endpoints` | shows what is mapped |
+| `schema` | the whole command surface as JSON |
+| `check` | preflight: session, hours left, class ids |
 
-Every `create` returns the new record's id, so you can chain without a second
-lookup. Only `todo_id` is guaranteed. `class_id`, `unit_id`, `event_id` and
-`student_id` are recovered by diffing the list around the write, so they come
-back `null` if more than one record appeared — fall back to a `list`. `students
-update` needs `--class-id` as well as `--student-id`.
+Every `create` returns the new record's id as **`id`**, and never `null`. The
+create endpoints do not report an id, so it is recovered by diffing the list
+around the write and then narrowing by the fields just written. Add `--id-only`
+to get `{"id": N}` and nothing else. If the id genuinely cannot be proven — two
+identical records appearing at once — the command fails with `kind:
+"Ambiguous"`, whose remedy says the record exists and you must not retry.
 
-`classes list` and `students list` normalise the id key to `id`. `units list`,
-`todos list` and `events list` return undecoded wire records, keyed `unitId`,
-`toDoId` and `eventId`.
+Every write is read back and compared against the fields you named, so a
+server that answers HTTP 200 and stores nothing fails with `kind:
+"PostconditionFailed"`. If the read-back itself fails, the write already
+landed: that is `kind: "Ambiguous"`, and its remedy says not to retry. Three
+are unverified: `students delete` without `--class-id` (there is no get-one
+endpoint to read back), `attachments upload`, and `raw`, which cannot know what
+it just sent.
+
+`students update` needs `--class-id` as well as `--student-id`. `units update`
+and `units delete` need the class the unit is in, and refuse (exit 64) if it is
+another one.
+
+**Every record answers to `id`** — every list, and every `create` result.
+`classes`, `students`, `units`, `todos`, `events` and `templates` all use the
+same readable field names. Where a command has `--raw` it returns the untouched
+wire body; `planbook schema` lists which ones do.
 
 ### Authentication
 
@@ -111,28 +169,47 @@ A lesson has **six** sections. Check labels with `planbook lessons sections`.
 Bulk writes:
 
 ```bash
-planbook lessons bulk lessons.json [--class-id N] [--keep-going] [--dry-run]
+planbook lessons bulk lessons.json [--class-id N] [--keep-going] [--dry-run] [--journal run.jsonl] [--resume]
 ```
+
+`--journal` records every item as it lands, keyed by class + date and hashed on
+content. `--resume` then reruns only what is missing — an interrupted run is
+picked up without duplicating or skipping a lesson. Editing an item in the file
+changes its hash, so it is written again rather than skipped.
 
 ### Destructive commands
 
+One policy, applied to all of them:
+
+- **Every** destructive command takes `--dry-run`, which sends no write and
+  reports the exact requests plus a `cascade` count of what else would go. It
+  still reads: a preview built without the current record would show this write
+  blanking fields the real one carries over, so `--dry-run` needs a session.
+- **`--yes` is required** when the delete destroys records you did not name.
+  Without it the command exits 64 and names the blast radius. The flag exists
+  only on those commands; the rest of the table below does not accept one.
+
 Confirm with the user before running any of these:
 
-- `classes delete --class-id N --yes` — removes the class **and every lesson in it**
-- `lessons delete --class-id N --date D`
-- `events delete --event-id N` — removes the **whole series** by default; `--occurrence-only` deletes only the occurrence the event record points at
-- `events create --no-school` — permanently deletes every lesson on that date, or across `--date`…`--end-date`. The CLI refuses if lessons already exist; `--force` deletes them.
-- `units delete --unit-id N --class-id N`
-- `todos delete --todo-id N`
-- `students delete --student-id N`
+| command | cascade | needs `--yes` |
+|---|---|---|
+| `classes delete --class-id N` | every lesson in the class | always |
+| `events delete --event-id N` | the whole repeating series | when the series has more than one date |
+| `events create --no-school` | every lesson in the date range | when lessons exist (spelled `--force`) |
+| `lessons delete --class-id N --date D` | — | no |
+| `units delete --unit-id N --class-id N` | — | no |
+| `todos delete --todo-id N` | — | no |
+| `students delete --student-id N` | — | no |
 
-`classes delete` is the only one that requires `--yes`. The rest act immediately.
+`events delete --occurrence-only` drops one date and needs no confirmation.
 
 ### Limitations
 
 - `grades` and `attendance` are read-only.
 - Seating charts, lesson banks, messages, and reporting are not mapped.
 - `filterNotes` is blocked on an unknown parameter.
+- Every write costs an extra read: read-before-write, then a read-back to prove
+  it landed. Budget three requests per lesson in a bulk run.
 - Signing in needs a human at the keyboard: `auth token`, and the Keychain prompt behind `auth import`. `auth status` then runs unattended.
 
 ## Safety

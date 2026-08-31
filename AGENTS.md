@@ -47,7 +47,7 @@ contract version; branch on `contract` if you cache what you learned.
   JSON object, which is what an agent should use:
 
   ```json
-  {"error": {"contract": "1.3", "kind": "SchemaDrift", "code": 65,
+  {"error": {"contract": "1.5", "kind": "SchemaDrift", "code": 65,
              "retryable": false, "message": "...", "remedy": "...",
              "details": {}}}
   ```

@@ -10,13 +10,14 @@ on every resource. `--raw` returns the untouched wire body.
 
 from __future__ import annotations
 
-from .narrow import as_object, flag, text
+from .narrow import as_object, flag, records, text
 from .types import (
     Class,
     DaySchedule,
     Event,
     JsonObject,
     JsonValue,
+    Lesson,
     Student,
     Template,
     Todo,
@@ -130,4 +131,43 @@ def student(raw: JsonValue) -> Student:
         code=record.get("code"),
         email=record.get("emailAddress"),
         gender=record.get("gender"),
+    )
+
+
+def lesson(raw: JsonValue, *, date: object = None) -> Lesson:
+    """A saved lesson, keyed the way `lessons set` names its flags.
+
+    A lesson carries no date on the wire - the date belongs to the day it was
+    read from - so the caller supplies the one it asked for.
+    """
+    record = _obj(raw, "lesson")
+    return Lesson(
+        class_id=record.get("classId"),
+        date=date if date is not None else record.get("date"),
+        lesson_id=record.get("lessonId"),
+        title=record.get("lessonTitle"),
+        text=record.get("lessonText"),
+        homework=record.get("homeworkText"),
+        notes=record.get("notesText"),
+        section4=record.get("tab4Text"),
+        section5=record.get("tab5Text"),
+        section6=record.get("tab6Text"),
+        unit_id=record.get("unitId"),
+        unit_title=record.get("unitTitle"),
+        standards=[
+            st.get("id")
+            for st in records(record.get("standards") or [], where="lesson.standards")
+        ],
+        assignments=[
+            a.get("assignmentTitle")
+            for a in records(
+                record.get("assignments") or [], where="lesson.assignments"
+            )
+        ],
+        attachments=[
+            at.get("fileName")
+            for at in records(
+                record.get("attachments") or [], where="lesson.attachments"
+            )
+        ],
     )

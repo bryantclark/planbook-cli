@@ -11,7 +11,7 @@ renaming or removing a documented key is a major one.
 from __future__ import annotations
 
 CONTRACT_MAJOR = 1
-CONTRACT_MINOR = 3
+CONTRACT_MINOR = 5
 CONTRACT_VERSION = f"{CONTRACT_MAJOR}.{CONTRACT_MINOR}"
 
 EXIT_CODES: dict[int, dict[str, str]] = {

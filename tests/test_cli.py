@@ -1,10 +1,14 @@
 import json
+import urllib.parse
 
 import pytest
 import responses
 
-from planbook import api, cli
-from planbook.client import API_BASE
+from conftest import event_list, lesson_days, saved_lesson, stub
+from planbook import cli
+from planbook.client import PlanbookClient
+from planbook.resources.events import new_event_payload
+from planbook.resources.lessons import set_lesson
 
 
 def parse_stdout(capsys):
@@ -18,9 +22,9 @@ def write_session(session_file):
 
 @responses.activate
 def test_success_path_prints_only_valid_json_stdout(capsys, session_file):
-    responses.post(
-        f"{API_BASE}/getClasses2",
-        json={
+    stub(
+        "/getClasses2",
+        {
             "currentYearId": 1,
             "classes": [],
             "lessonBanks": [],
@@ -56,7 +60,7 @@ def test_usage_error_exit_code_64_for_bad_days(capsys, isolated_config):
 
 @responses.activate
 def test_schema_drift_exit_code_65(capsys, session_file):
-    responses.post(f"{API_BASE}/getClasses2", json={"currentYearId": 1})
+    stub("/getClasses2", {"currentYearId": 1})
     code = cli.main(["classes", "list"])
     captured = capsys.readouterr()
     assert code == 65
@@ -71,7 +75,21 @@ def test_not_authenticated_exit_code_77(capsys, isolated_config):
 
 
 @responses.activate
-def test_lessons_set_dry_run_does_not_touch_auth(capsys, isolated_config):
+def test_lessons_set_dry_run_previews_what_the_write_would_carry_over(
+    capsys, session_file
+):
+    # The preview reads the current lesson for the same reason the write does:
+    # a payload built without it shows this write blanking text the real one
+    # keeps, which is the one thing --dry-run exists to catch.
+    stub(
+        "/getLessonsEvents",
+        saved_lesson(
+            classId=123,
+            lessonId=7,
+            lessonTitle="Old title",
+            lessonText="<p>keep me</p>",
+        ),
+    )
     code = cli.main(
         [
             "lessons",
@@ -88,7 +106,9 @@ def test_lessons_set_dry_run_does_not_touch_auth(capsys, isolated_config):
     body, _ = parse_stdout(capsys)
     assert code == 0
     assert body["dry_run"] is True
-    assert len(responses.calls) == 0
+    assert body["payload"]["lessonTitle"] == "Photosynthesis"
+    assert body["payload"]["lessonText"] == "<p>keep me</p>"
+    assert not [c for c in responses.calls if c.request.url.endswith("/updateLesson")]
 
 
 @responses.activate
@@ -96,12 +116,16 @@ def test_raw_dry_run_does_not_touch_auth(capsys, isolated_config):
     code = cli.main(["raw", "/getAssignments", "-F", "teacherId=123", "--dry-run"])
     body, _ = parse_stdout(capsys)
     assert code == 0
-    assert body == {
-        "dry_run": True,
-        "method": "POST",
-        "endpoint": "/getAssignments",
-        "payload": {"teacherId": "123"},
-    }
+    assert body["dry_run"] is True
+    assert body["requests"] == [
+        {
+            "method": "POST",
+            "endpoint": "/getAssignments",
+            "payload": {"teacherId": "123"},
+        }
+    ]
+    assert body["endpoint"] == "/getAssignments"
+    assert body["payload"] == {"teacherId": "123"}
     assert len(responses.calls) == 0
 
 
@@ -142,6 +166,28 @@ def test_bulk_rejects_a_bad_item_before_writing_anything(
 
 
 @responses.activate
+def test_bulk_reads_the_section_layout_once(tmp_path, capsys, session_file):
+    stub("/getSettings", {"tab4Label": "Objectives", "tab4Enabled": "Y"})
+    # The dry run now reads each lesson so its preview shows the carry-over.
+    stub("/getLessonsEvents", lesson_days())
+    path = tmp_path / "lessons.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"class_id": 1, "date": "09/03/2026", "sections": {"Objectives": "a"}},
+                {"class_id": 1, "date": "09/04/2026", "sections": {"Objectives": "b"}},
+                {"class_id": 1, "date": "09/05/2026", "sections": {"Objectives": "c"}},
+            ]
+        )
+    )
+    assert cli.main(["lessons", "bulk", str(path), "--dry-run"]) == 0
+    settings_calls = [
+        c for c in responses.calls if c.request.url.endswith("/getSettings")
+    ]
+    assert len(settings_calls) == 1
+
+
+@responses.activate
 def test_bulk_keep_going_continues_past_an_api_failure(tmp_path, capsys, session_file):
     # An API-level failure can only be found at write time; --keep-going
     # records it, carries on, and still exits non-zero.
@@ -154,10 +200,16 @@ def test_bulk_keep_going_continues_past_an_api_failure(tmp_path, capsys, session
             ]
         )
     )
-    responses.post(f"{API_BASE}/getEvents", json={"events": []})
-    responses.post(f"{API_BASE}/getLessonsEvents", json={"days": []})
-    responses.post(f"{API_BASE}/updateLesson", json={"error": "true", "msg": "nope"})
-    responses.post(f"{API_BASE}/updateLesson", json={"ok": True})
+    stub("/getEvents", event_list())
+    stub("/getLessonsEvents", lesson_days())
+    stub("/getLessonsEvents", lesson_days())
+    # The read-back after the second item's write, which proves it landed.
+    stub(
+        "/getLessonsEvents",
+        saved_lesson(date="09/04/2026", classId=123, lessonId=8, lessonTitle="Two"),
+    )
+    stub("/updateLesson", {"error": "true", "msg": "nope"})
+    stub("/updateLesson", {"ok": True})
 
     with pytest.raises(SystemExit) as exc:
         cli.main(["lessons", "bulk", str(path), "--keep-going"])
@@ -188,13 +240,9 @@ def test_malformed_token_file_is_not_a_traceback(capsys, isolated_config):
 @responses.activate
 def test_events_delete_dry_run_sends_no_delete(capsys, session_file):
     # The flag existed, was advertised, and performed the delete anyway.
-    responses.post(
-        f"{API_BASE}/getEvents",
-        json={
-            "events": [
-                {"eventId": 7, "eventTitle": "Holiday", "eventDate": "09/07/2026"}
-            ]
-        },
+    stub(
+        "/getEvents",
+        event_list({"eventId": 7, "eventTitle": "Holiday", "eventDate": "09/07/2026"}),
     )
     assert cli.main(["events", "delete", "--event-id", "7", "--dry-run"]) == 0
     assert not [c for c in responses.calls if c.request.url.endswith("/deleteEvent")]
@@ -203,7 +251,7 @@ def test_events_delete_dry_run_sends_no_delete(capsys, session_file):
 
 @responses.activate
 def test_raw_json_actually_sends_json(capsys, session_file):
-    responses.post(f"{API_BASE}/x", json={})
+    stub("/x", {})
     assert cli.main(["raw", "/x", "-F", "a=1", "--json"]) == 0
     assert responses.calls[0].request.headers["Content-Type"] == "application/json"
 
@@ -218,7 +266,7 @@ def test_events_create_dry_run_previews_the_payload_the_write_would_send(capsys)
         == 0
     )
     payload = json.loads(capsys.readouterr().out)["payload"]
-    assert payload == api.new_event_payload(title="T", date="09/01/2026")
+    assert payload == new_event_payload(title="T", date="09/01/2026")
 
 
 def test_auth_token_without_stdin_exits_64_not_traceback(monkeypatch):
@@ -230,9 +278,8 @@ def test_auth_token_without_stdin_exits_64_not_traceback(monkeypatch):
     assert cli.main(["auth", "token"]) == 64
 
 
-def test_removed_auth_paths_are_gone(capsys):
-    # `auth login` and `auth browser` no longer exist; argparse rejects them.
-    for command in ("login", "browser"):
+def test_unknown_auth_subcommands_are_rejected(capsys):
+    for command in ("login", "browser", "signin"):
         with pytest.raises(SystemExit) as exc:
             cli.main(["auth", command])
         assert exc.value.code == 64
@@ -286,7 +333,7 @@ def test_auth_status_keeps_stdout_empty_on_failure(capsys, monkeypatch, tmp_path
     session.write_text(json.dumps({"token": "t.t.t"}))
     monkeypatch.setattr("planbook.config.session_path", lambda: session)
     monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
-    responses.post(f"{API_BASE}/getClasses2", json={"error": "true", "msg": "nope"})
+    stub("/getClasses2", {"error": "true", "msg": "nope"})
     assert cli.main(["auth", "status"]) == 77
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
@@ -330,3 +377,48 @@ def test_auth_import_guides_to_a_readable_browser_when_none_readable(monkeypatch
 
     assert cli.main(["auth", "import"]) == 64
     assert opened == []
+
+
+@responses.activate
+def test_bulk_writes_an_item_that_only_moves_a_lesson_into_a_unit(
+    tmp_path, capsys, session_file
+):
+    # `unit_id` is a bulk key, and the payload guard counts it, so a unit-only
+    # item is a write like any other rather than a usage error.
+    path = tmp_path / "lessons.json"
+    path.write_text(json.dumps([{"class_id": 123, "date": "09/03/2026", "unit_id": 9}]))
+    cells = {"classId": 123, "lessonTitle": "Cells", "lessonText": "<p>Mitosis</p>"}
+    stub("/getEvents", event_list())
+    stub("/getLessonsEvents", saved_lesson(**cells))
+    stub("/updateLesson", {"ok": True})
+    stub("/getLessonsEvents", saved_lesson(**cells, unitId=9))
+
+    assert cli.main(["lessons", "bulk", str(path)]) == 0
+    body = json.loads(capsys.readouterr().out)
+    assert body["written"] == 1
+    sent = urllib.parse.parse_qs(responses.calls[2].request.body)
+    assert sent["unitId"] == ["9"]
+    assert sent["lessonText"] == ["<p>Mitosis</p>"]
+
+
+@responses.activate
+def test_a_unit_and_a_standard_create_the_lesson_the_standard_needs(session_file):
+    # Standards go to `checks`, not `named`, so a unit-only refusal keyed on
+    # `named` alone would block the create-then-attach path.
+    created = saved_lesson(unitId=9, standards=[{"id": "3.NBT.A.1"}])
+    stub("/getLessonsEvents", lesson_days())
+    stub("/updateLesson", {"ok": True})
+    stub("/getLessonsEvents", created)
+    stub("/updateLesson", {"ok": True})
+    stub("/getLessonsEvents", created)
+
+    result = set_lesson(
+        PlanbookClient("t.t.t"),
+        class_id=1,
+        date="09/03/2026",
+        unit_id=9,
+        standards=["1234"],
+    )
+    assert result["ok"] is True
+    # Nested, so a real run and its `--dry-run` preview read the same.
+    assert result["effects"]["standards"] == ["1234"]

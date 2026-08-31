@@ -2,8 +2,9 @@ import pytest
 import requests
 import responses
 
-from planbook.client import API_BASE, PlanbookClient, intish, yn
+from planbook.client import API_BASE, PlanbookClient
 from planbook.errors import ApiError, NotAuthenticated, SchemaDrift
+from planbook.wire import intish, yn
 
 
 def response(status, text):
@@ -14,7 +15,7 @@ def response(status, text):
 
 
 def client():
-    return PlanbookClient("cookie")
+    return PlanbookClient("t.t.t")
 
 
 def test_check_maps_not_logged_in_to_not_authenticated():

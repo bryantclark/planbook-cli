@@ -5,11 +5,10 @@ from __future__ import annotations
 import datetime
 import json
 import re
-from typing import Any
 
 from .errors import UsageError
-
-Payload = dict[str, Any]
+from .narrow import flag as truthy
+from .types import JsonObject, JsonValue
 
 
 def yn(value: bool) -> str:
@@ -17,12 +16,28 @@ def yn(value: bool) -> str:
     return "Y" if value else "N"
 
 
-def intish(value: Any) -> str:
+def intish(value: JsonValue) -> str:
     """Integer fields must carry "0" when absent, never an empty string."""
     if value in (None, "", False):
         return "0"
+    if not isinstance(value, int | float | str):
+        raise UsageError(f"Expected an id, got {type(value).__name__}.")
     return str(int(value))
 
+
+#: To-do priority, name -> wire value.
+TODO_PRIORITIES = {"low": "1", "medium": "2", "high": "3"}
+PRIORITY_NAMES = {v: k for k, v in TODO_PRIORITIES.items()}
+
+#: The six unit section texts, in section order.
+UNIT_SECTION_FIELDS = {
+    1: "unitLessonText",
+    2: "unitHomeworkText",
+    3: "unitNotesText",
+    4: "unitSection4Text",
+    5: "unitSection5Text",
+    6: "unitSection6Text",
+}
 
 DAY_PREFIXES = {
     "monday": "m",
@@ -48,9 +63,8 @@ TIME_RE = re.compile(r"^\s*(\d{1,2})[:.](\d{2})\s*([AaPp])?\.?[Mm]?\.?\s*$")
 def parse_time(value: str | None) -> str:
     """Normalize a time to the 12-hour form Planbook stores.
 
-    Planbook accepts only "9:00 AM"-style times. A 24-hour string is taken
-    without complaint and stored as empty, so "14:30" would silently lose the
-    lesson's time. Both forms are accepted here and converted.
+    Planbook takes a 24-hour string without complaint and stores it empty, so
+    "14:30" would silently lose the lesson's time.
     """
     if value is None or value == "":
         return ""
@@ -124,9 +138,8 @@ DAY_ORDER = [
     "sunday",
 ]
 
-# The schedule JSON indexes differently: teachDay1 is SUNDAY, not Monday. An
-# off-by-one does not error, it silently shifts every day (Mon/Wed/Fri became
-# Tue/Thu/Sun).
+# The schedule JSON indexes from Sunday: teachDay1 is SUNDAY, not Monday. An
+# off-by-one does not error, it silently shifts every day.
 SCHEDULE_DAY_ORDER = [
     "sunday",
     "monday",
@@ -143,23 +156,20 @@ SCHEDULE_SLOTS = 20
 
 
 def edit_schedule(
-    existing: list[dict[str, Any]],
+    existing: list[JsonObject],
     *,
     days: list[str] | None,
     times: dict[str, tuple[str, str]] | None,
 ) -> str:
     """Rebuild the `schedules` JSON from what the server already has.
 
-    `getClass` returns `classSchedule` with all twenty rotation slots, plus
-    `additionalClassDays` and any extra schedule rows a mid-year change
-    created. Rebuilding from a blank template would flatten a rotating
-    schedule into a plain week - silently, on something as innocent as a
-    rename - so the existing rows are carried through and only the weekday
-    slots the caller actually named are touched.
+    Building from a blank template would silently flatten a rotating schedule
+    into a plain week, so existing rows are carried through and only the
+    weekday slots the caller named are touched.
     """
     rows = []
     for index, row in enumerate(existing):
-        slot: dict[str, Any] = {
+        slot: JsonObject = {
             "scheduleStart": row.get("scheduleStart", ""),
             "additionalClassDays": row.get("additionalClassDays", []),
         }
@@ -168,7 +178,7 @@ def edit_schedule(
         last = index == len(existing) - 1
         for n in range(1, SCHEDULE_SLOTS + 1):
             day = SCHEDULE_DAY_ORDER[n - 1] if n <= len(SCHEDULE_DAY_ORDER) else None
-            teaches = bool(row.get(f"day{n}Teach"))
+            teaches = truthy(row.get(f"day{n}Teach"))
             start = row.get(f"day{n}StartTime") or ""
             end = row.get(f"day{n}EndTime") or ""
             # Only the most recent row is edited; earlier rows are history.
@@ -191,7 +201,7 @@ def build_schedule(
 ) -> str:
     """Build a fresh `schedules` JSON for a new class."""
     times = times or {}
-    slot: dict[str, Any] = {"scheduleStart": start_date, "additionalClassDays": []}
+    slot: JsonObject = {"scheduleStart": start_date, "additionalClassDays": []}
     for index in range(1, SCHEDULE_SLOTS + 1):
         day = (
             SCHEDULE_DAY_ORDER[index - 1] if index <= len(SCHEDULE_DAY_ORDER) else None
@@ -207,14 +217,12 @@ def build_schedule(
 def parse_date(value: str, *, flag: str = "date") -> str:
     """Validate a date and return it zero-padded as MM/DD/YYYY.
 
-    Worth doing locally: the server answers a malformed date with a Java
-    NullPointerException about `Schedule.getScheduleStart()`, which tells a
-    caller nothing and arrives as an API error rather than a usage error.
+    The server answers a malformed date with a Java NullPointerException about
+    `Schedule.getScheduleStart()`, so the check is worth doing locally.
 
-    Normalizing is not cosmetic. The server always reports dates zero-padded,
-    and `find_lesson` matches them by exact string, so an unpadded `9/3/2026`
-    would fail to find the lesson already saved on `09/03/2026` and a write
-    would blank it as if the date were empty.
+    The padding matters: the server reports dates zero-padded and `find_lesson`
+    matches them by exact string, so `9/3/2026` would miss the lesson saved on
+    `09/03/2026` and the write would blank it.
     """
     if not isinstance(value, str):
         raise UsageError(

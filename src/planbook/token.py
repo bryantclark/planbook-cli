@@ -5,12 +5,11 @@ carries it as a cookie named `U|<view-id>|.accesstoken`; the server also
 accepts it as `Authorization: Bearer`, which is what this CLI sends.
 
 The payload carries account id, year id, email and expiry, so `auth status`
-and expiry warnings cost no request.
+costs no request.
 
-Two issuers are in circulation and they nest identity differently. The older
-one double-encodes: `sub` is itself a JSON string. The auth server
-(`auth.planbook.com`) instead uses a namespaced claim, and spells the year
-`yearid`. `identity()` flattens both, so nothing downstream has to care.
+Two issuers nest identity differently: the older one double-encodes `sub` as a
+JSON string; `auth.planbook.com` uses a namespaced claim and spells the year
+`yearid`. `identity()` flattens both.
 """
 
 from __future__ import annotations
@@ -20,7 +19,9 @@ import contextlib
 import json
 import re
 import time
-from typing import Any, cast
+from typing import cast
+
+from .types import JsonRecord, Result
 
 # The token turns up as a bare JWT, inside a Cookie header, or in a whole
 # "Copy as cURL" paste.
@@ -49,13 +50,10 @@ def _b64(segment: str) -> bytes:
     return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
 
 
-def claims(token: str) -> dict[str, Any]:
-    """Decode the payload; the signature is not verified - only the server can.
-
-    Planbook double-encodes: `sub` is itself a JSON string.
-    """
+def claims(token: str) -> Result:
+    """Decode the payload. The signature is not verified - only the server can."""
     try:
-        payload = cast(dict[str, Any], json.loads(_b64(token.split(".")[1])))
+        payload = cast("dict[str, object]", json.loads(_b64(token.split(".")[1])))
     except Exception:
         return {}
     sub = payload.get("sub")
@@ -68,12 +66,8 @@ def claims(token: str) -> dict[str, Any]:
 NAMESPACE = "https://planbook.com/claims"
 
 
-def identity(token: str) -> dict[str, Any]:
-    """The identity claims, whichever of the two shapes the issuer used.
-
-    Returns the raw sub-object; read it with `_first` so that `yearId` and
-    `yearid` both resolve.
-    """
+def identity(token: str) -> Result:
+    """The identity claims, whichever shape the issuer used."""
     data = claims(token)
     for candidate in (data.get(NAMESPACE), data.get("sub")):
         if isinstance(candidate, dict):
@@ -81,7 +75,7 @@ def identity(token: str) -> dict[str, Any]:
     return {}
 
 
-def _first(source: dict[str, Any], *names: str) -> Any:
+def _first(source: JsonRecord, *names: str) -> object:
     for name in names:
         value = source.get(name)
         if value not in (None, ""):
@@ -89,7 +83,7 @@ def _first(source: dict[str, Any], *names: str) -> Any:
     return None
 
 
-def describe(token: str) -> dict[str, Any]:
+def describe(token: str) -> Result:
     """Who the token is for and how long it lasts."""
     data = claims(token)
     sub = identity(token)

@@ -20,14 +20,19 @@ import mimetypes
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 import requests
 
 from . import __version__
-from .errors import SIGN_IN_HELP, ApiError, NotAuthenticated, SchemaDrift
-from .wire import intish as intish
-from .wire import yn as yn
+from .errors import (
+    SIGN_IN_HELP,
+    ApiError,
+    NotAuthenticated,
+    SchemaDrift,
+    TransportError,
+)
+from .narrow import flag
+from .types import FormBody, JsonObject, JsonValue
 
 API_BASE = "https://api.planbook.com"
 
@@ -53,8 +58,8 @@ class PlanbookClient:
         self.http.headers["User-Agent"] = USER_AGENT
         self.http.headers["Authorization"] = f"Bearer {token}"
 
-        # The token carries its own expiry, so catch a stale one here instead
-        # of spending a round trip to be told the same thing.
+        # The token carries its own expiry: no round trip needed to spot a
+        # stale one.
         from . import token as _token
 
         if _token.is_expired(token):
@@ -68,36 +73,34 @@ class PlanbookClient:
                 f"Your Planbook token has expired{ago}." + SIGN_IN_HELP
             )
 
-    def post(self, path: str, data: dict[str, Any] | None = None) -> Any:
+    def post(self, path: str, data: FormBody | None = None) -> JsonValue:
         url = f"{API_BASE}/{path.lstrip('/')}"
-        payload = {k: v for k, v in (data or {}).items() if v is not None}
+        payload = dict(data or {})
         if self.verbose:
             keys = ",".join(sorted(payload)) or "-"
             print(f"POST {url} [{keys}]", file=sys.stderr)
         resp = self.http.post(url, data=payload, timeout=self.timeout)
         return self._check(resp, url)
 
-    def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    def get(self, path: str, params: FormBody | None = None) -> JsonValue:
         """GET a service endpoint.
 
-        Part of the API answers only to GET - `/services/planbook/attendance/*`
-        among them - and replies to a POST with
+        `/services/planbook/**` answers only to GET; a POST there comes back
         `{"error":"true","message":"HTTP 405 Method Not Allowed"}`.
         """
         url = f"{API_BASE}/{path.lstrip('/')}"
-        query = {k: v for k, v in (params or {}).items() if v is not None}
+        query = dict(params or {})
         if self.verbose:
             keys = ",".join(sorted(query)) or "-"
             print(f"GET {url} [{keys}]", file=sys.stderr)
         resp = self.http.get(url, params=query, timeout=self.timeout)
         return self._check(resp, url)
 
-    def post_json(self, path: str, body: dict[str, Any] | None = None) -> Any:
+    def post_json(self, path: str, body: JsonObject | None = None) -> JsonValue:
         """POST a JSON body.
 
-        A third request style: most of the API is form-encoded, but a few
-        service endpoints reject that with `A JSONObject text must begin
-        with '{'`.
+        A few service endpoints reject form encoding with `A JSONObject text
+        must begin with '{'`.
         """
         url = f"{API_BASE}/{path.lstrip('/')}"
         if self.verbose:
@@ -105,13 +108,12 @@ class PlanbookClient:
         resp = self.http.post(url, json=body or {}, timeout=self.timeout)
         return self._check(resp, url)
 
-    def upload(self, path: str, file_path: str) -> Any:
+    def upload(self, path: str, file_path: str) -> JsonValue:
         """POST a file as multipart. `/uploadAttachment` is the only such endpoint."""
         url = f"{API_BASE}/{path.lstrip('/')}"
         name = Path(file_path).name
-        # The part must carry a content type: without one the server fails
-        # with `Cannot invoke "String.indexOf(String)" because "fileType" is
-        # null`, which says nothing about the real cause.
+        # Without a content type the server fails with `Cannot invoke
+        # "String.indexOf(String)" because "fileType" is null`.
         content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
         if self.verbose:
             print(f"POST {url} [multipart: {name} ({content_type})]", file=sys.stderr)
@@ -123,32 +125,33 @@ class PlanbookClient:
             )
         return self._check(resp, url)
 
-    def _check(self, resp: requests.Response, url: str) -> Any:
+    def _check(self, resp: requests.Response, url: str) -> JsonValue:
         if resp.status_code == 405 and "awswaf" in resp.text.lower():
             raise SchemaDrift(
                 f"{url} answered with an AWS WAF challenge. Planbook has "
                 "changed its edge configuration; this tool cannot proceed."
             )
         if resp.status_code >= 500:
-            raise ApiError(f"{url} returned HTTP {resp.status_code}")
+            # Transient, so retryable - unlike an error reported in a 200 body.
+            raise TransportError(f"{url} returned HTTP {resp.status_code}")
 
         text = resp.text.strip()
         if not text:
             return None
         try:
-            body = json.loads(text)
+            body: JsonValue = json.loads(text)
         except ValueError:
             head = text[:200].replace("\n", " ")
             raise SchemaDrift(f"{url} returned non-JSON: {head!r}") from None
 
         if isinstance(body, dict):
-            if str(body.get("notLoggedIn", "")).lower() == "true":
+            if flag(body.get("notLoggedIn")):
                 raise NotAuthenticated(
                     "Your Planbook token was rejected - it has probably expired "
                     "(they last about 22 hours, or 1 hour for auth-server tokens)."
                     + SIGN_IN_HELP
                 )
-            if str(body.get("error", "")).lower() == "true":
+            if flag(body.get("error")):
                 detail = body.get("msg") or body.get("message")
                 if detail and "405" in str(detail):
                     detail = f"{detail} - GET-only endpoint; try `raw --get`"
@@ -157,10 +160,8 @@ class PlanbookClient:
                 )
         return body
 
-    def require(self, body: Any, *keys: str, where: str) -> dict[str, Any]:
-        """Require the keys we expect. The API is undocumented, so a changed
-        shape should stop the run rather than produce plausible wrong output.
-        """
+    def require(self, body: JsonValue, *keys: str, where: str) -> JsonObject:
+        """Require the keys we expect, so drift stops the run."""
         if not isinstance(body, dict):
             raise SchemaDrift(f"{where}: expected an object, got {type(body).__name__}")
         missing = [k for k in keys if k not in body]

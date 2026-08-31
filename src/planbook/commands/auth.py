@@ -11,24 +11,27 @@ import time
 import webbrowser
 from typing import NoReturn
 
-from .. import api, browser_cookies, config
+from .. import browser_cookies, config
 from .. import token as pbtoken
 from ..cli_support import emit
 from ..client import PlanbookClient
 from ..errors import (
     SIGN_IN_HELP,
     SIGN_IN_URL,
+    ApiError,
     NotAuthenticated,
     PlanbookError,
     UsageError,
 )
+from ..narrow import text
+from ..resources.classes import list_classes
 
 
 def cmd_auth_token(args: argparse.Namespace) -> None:
     """Store a Planbook access token copied out of a signed-in browser.
 
-    Accepts a bare JWT, a Cookie header, or a "Copy as cURL" paste. Verifies
-    first, so a bad token fails here rather than three commands later.
+    Accepts a bare JWT, a Cookie header, or a "Copy as cURL" paste. Verified
+    before it is stored.
     """
     raw = args.value or getpass.getpass("Paste token, cookie, or curl: ")
     value = pbtoken.extract(raw)
@@ -50,9 +53,9 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
 
     if not args.no_verify:
         client = PlanbookClient(value, verbose=args.verbose)
-        api.list_classes(client)  # raises NotAuthenticated if the token is bad
+        list_classes(client)  # raises NotAuthenticated if the token is bad
 
-    path = config.save_session(value, info.get("email"))
+    path = config.save_session(value, text(info, "email"))
     emit(
         {
             "ok": True,
@@ -81,14 +84,14 @@ def _best_browser_token(args: argparse.Namespace) -> tuple[int, str, str] | None
     for browser, candidate in browser_cookies.search(preferred):
         if pbtoken.is_expired(candidate):
             continue
-        remaining = pbtoken.describe(candidate).get("expires_in_seconds") or 0
+        remaining = _seconds_left(candidate)
         if best is not None and remaining <= best[0]:
             continue
         try:
-            api.list_classes(PlanbookClient(candidate, verbose=args.verbose))
+            list_classes(PlanbookClient(candidate, verbose=args.verbose))
         except PlanbookError:
-            # Not usable. A rejected token does not always say notLoggedIn -
-            # one answered "date must not be null" - so any failure disqualifies.
+            # A rejected token does not reliably say notLoggedIn - one
+            # answered "date must not be null" - so any failure disqualifies.
             continue
         best = (remaining, browser, candidate)
     return best
@@ -96,7 +99,7 @@ def _best_browser_token(args: argparse.Namespace) -> tuple[int, str, str] | None
 
 def _store_token(browser: str, token: str) -> None:
     info = pbtoken.describe(token)
-    path = config.save_session(token, info.get("email"))
+    path = config.save_session(token, text(info, "email"))
     emit(
         {
             "ok": True,
@@ -111,9 +114,8 @@ def _store_token(browser: str, token: str) -> None:
 def cmd_auth_import(args: argparse.Namespace) -> None:
     """Read the access token from a browser you are already signed in to.
 
-    The recommended path: nothing is automated and nothing is copied by hand.
-    When run in a terminal and no token is found, it opens the Planbook sign-in
-    page and waits for you to sign in, then grabs the token - no second command.
+    In a terminal with no token found, opens the sign-in page and waits for
+    you, then takes the token.
     """
     print(
         "Reading browser cookies. macOS may raise a Keychain prompt - approve "
@@ -125,7 +127,7 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
     # Never trade down: an already-stored session may outlive every cookie.
     stored = config.load_session_or_none()
     if stored and not pbtoken.is_expired(stored):
-        held = pbtoken.describe(stored).get("expires_in_seconds") or 0
+        held = _seconds_left(stored)
         if best is None or held >= best[0]:
             info = pbtoken.describe(stored)
             emit(
@@ -144,9 +146,8 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
         _store_token(browser, candidate)
         return
 
-    # Nothing found. In a terminal, guide the sign-in instead of failing: open
-    # the page and poll until a token shows up. Agents and CI (no TTY) get the
-    # old typed error, never a hang.
+    # Nothing found. In a terminal, guide the sign-in and poll for a token.
+    # Without a TTY, raise instead: an agent or CI run must never hang.
     interactive = sys.stdin.isatty() and sys.stderr.isatty() and not args.no_wait
     if interactive:
         _guided_sign_in(args)
@@ -156,9 +157,8 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
 
 
 def _guided_sign_in(args: argparse.Namespace) -> None:
-    # No point opening a browser and polling a cookie store this tool cannot
-    # read. Safari on macOS is the common case - blocked without Full Disk
-    # Access - so say so and point to a store that works.
+    # Polling a cookie store this tool cannot read never ends. Safari on macOS
+    # is the common case, blocked without Full Disk Access.
     if not browser_cookies.any_store_readable():
         raise UsageError(
             "This tool reads the sign-in token from your browser's cookie "
@@ -220,12 +220,11 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
         "expires_in_hours": info.get("expires_in_hours"),
     }
     try:
-        body = api.list_classes(client)
-    except PlanbookError as exc:
-        # The probe failed, so the session is unusable - a token the server has
-        # stopped honouring does not reliably come back as notLoggedIn (one
-        # answered "date must not be null"). Keep stdout empty on failure per
-        # the output contract; the reason and remedy go to stderr via the error.
+        body = list_classes(client)
+    except ApiError as exc:
+        # A token the server has stopped honouring does not reliably come back
+        # as notLoggedIn - one answered "date must not be null". Drift and
+        # transport failures keep their own codes; neither means "sign in".
         raise NotAuthenticated(
             f"The stored token was rejected: {exc}" + SIGN_IN_HELP
         ) from exc
@@ -240,3 +239,9 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
 
 def cmd_auth_logout(_args: argparse.Namespace) -> None:
     emit({"cleared": config.clear_session()})
+
+
+def _seconds_left(token: str) -> int:
+    """How long a token has to live, in whole seconds."""
+    value = pbtoken.describe(token).get("expires_in_seconds")
+    return int(value) if isinstance(value, int | float) else 0

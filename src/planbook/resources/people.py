@@ -1,64 +1,109 @@
 """Students, attendance and grades.
 
 Students are account-wide; a class sees the subset enrolled in it. Attendance
-is read-only here: `/services/planbook/attendance/get` answers a GET, but no
-write endpoint exists under that path, so recording attendance still needs
-the web UI.
+is read-only: no write endpoint exists under that path.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
+from .. import projection
 from ..client import PlanbookClient
-from ..errors import ApiError, SchemaDrift
+from ..errors import ApiError, SchemaDrift, UsageError
+from ..fields import Field, resolve
+from ..mutations import (
+    Mutation,
+    Request,
+    commit,
+    preview,
+    require_intent,
+    resolve_created,
+)
+from ..narrow import as_object, records, unwrap
+from ..types import Id, JsonObject, JsonValue, Result, Student, Template
 from ..wire import intish
 
+STUDENT_FIELDS = (
+    Field("first_name", "studentFirstName", ("firstName", "studentFirstName")),
+    Field("last_name", "studentLastName", ("lastName", "studentLastName")),
+    Field("code", "studentCode", ("code", "studentCode")),
+    Field("email", "studentEmailAddress", ("emailAddress", "studentEmailAddress")),
+    Field("phone", "studentPhoneNumber", ("phoneNumber", "studentPhoneNumber")),
+    Field("parent_email", "parentEmailAddress", ("parentEmailAddress",)),
+    Field("birthdate", "studentBirthDate", ("birthDate", "studentBirthDate")),
+    Field("middle_name", "studentMiddleName", ("middleName", "studentMiddleName")),
+    Field("gender", "studentGender", ("gender", "studentGender")),
+)
 
-def list_students(client: PlanbookClient, *, class_id: Any = None) -> Any:
+#: Carried over but never verified: `district_id` falls back to "0", which a
+#: read-back would not find.
+CARRIED_STUDENT_FIELDS = (
+    Field("photo_url", "studentPhotoUrl", ("photoUrl", "studentPhotoUrl")),
+    Field("district_id", "schoolDistrictId", ("schoolDistrictId", "districtId")),
+)
+
+
+def list_students(
+    client: PlanbookClient, *, class_id: Id | None = None
+) -> list[Student]:
     """Students in one class, or every student on the account.
 
     The account-wide endpoint answers `{id: "Last, First"}`; the per-class one
-    returns full records, so they are normalised to the same shape.
+    returns full records, so the two carry different fields. Both key on `id`.
     """
     if class_id is None:
-        body = client.post("/services/planbook/student/getAllFromSchool")
-        if not isinstance(body, dict):
-            raise SchemaDrift("getAllFromSchool did not return an object.")
         return [
-            {"id": int(k), "name": v, "last_name": str(v).split(",")[0].strip()}
-            for k, v in body.items()
+            Student(
+                id=r["id"],
+                name=r["name"],
+                last_name=r["last_name"],
+            )
+            for r in _account_roster(client)
         ]
-    body = client.post(
-        "/getStudentsServlet", {"classId": intish(class_id), "userMode": "T"}
+    return [projection.student(s) for s in _class_students(client, class_id)]
+
+
+def _account_roster(client: PlanbookClient) -> list[JsonObject]:
+    """Every student on the account. This endpoint answers `{id: "Last, First"}`."""
+    body = as_object(
+        client.post("/services/planbook/student/getAllFromSchool"),
+        where="getAllFromSchool",
     )
-    students = body.get("students") if isinstance(body, dict) else None
-    if not isinstance(students, list):
-        raise SchemaDrift("getStudentsServlet returned no `students` list.")
+    if not all(str(k).lstrip("-").isdigit() for k in body):
+        raise SchemaDrift("getAllFromSchool returned a non-id key.")
     return [
-        {
-            "id": s.get("studentId") or s.get("id"),
-            "first_name": s.get("firstName"),
-            "last_name": s.get("lastName"),
-            "code": s.get("code"),
-            "email": s.get("emailAddress"),
-            "gender": s.get("gender"),
-        }
-        for s in students
+        {"id": int(k), "name": v, "last_name": str(v).split(",")[0].strip()}
+        for k, v in body.items()
     ]
+
+
+def _class_students(client: PlanbookClient, class_id: Id) -> list[JsonObject]:
+    """The wire records for one class.
+
+    A missing `students` list is drift (exit 65), not an empty class.
+    """
+    body = as_object(
+        client.post(
+            "/getStudentsServlet", {"classId": intish(class_id), "userMode": "T"}
+        ),
+        where="getStudentsServlet",
+    )
+    if "students" not in body:
+        raise SchemaDrift("getStudentsServlet returned no `students` list.")
+    return records(body["students"], where="getStudentsServlet.students")
 
 
 def student_payload(
     *,
     first_name: str,
     last_name: str,
-    student_id: Any = 0,
+    student_id: Id = 0,
     code: str = "",
     email: str = "",
     phone: str = "",
     parent_email: str = "",
     birthdate: str = "",
     middle_name: str = "",
+    gender: str = "",
     photo_url: str = "",
     district_id: str = "0",
 ) -> dict[str, str]:
@@ -72,6 +117,9 @@ def student_payload(
         "studentPhoneNumber": phone,
         "parentEmailAddress": parent_email,
         "studentBirthDate": birthdate,
+        # Another full-replace field. `/getStudentsServlet` returns it, so
+        # omitting it here blanks it on an unrelated edit.
+        "studentGender": gender,
         "schoolDistrictId": district_id or "0",
         "userMode": "T",
         # A full-replace endpoint: a saved photo is lost unless carried over.
@@ -83,61 +131,50 @@ def student_payload(
 
 
 def create_student(
-    client: PlanbookClient | None, *, dry_run: bool = False, **fields: Any
-) -> dict[str, Any]:
+    client: PlanbookClient | None, *, dry_run: bool = False, **fields: str
+) -> Result:
+    payload = student_payload(**fields)
+    mutation = Mutation(
+        resource="student",
+        operation="create",
+        requests=[Request("/addStudentServlet", payload)],
+    )
     if dry_run:
-        return {
-            "dry_run": True,
-            "endpoint": "/addStudentServlet",
-            "payload": student_payload(**fields),
-        }
+        return preview(mutation)
 
     assert client is not None  # only the dry_run branch runs without one
 
-    # /addStudentServlet does not report the new id. Diff the account roster
-    # around the write so the caller gets a student_id to update or delete.
-    def roster_ids() -> set[str]:
-        return {
-            str(s.get("id"))
-            for s in (list_students(client) or [])
-            if isinstance(s, dict) and s.get("id") is not None
-        }
+    # /addStudentServlet does not report the new id, so diff the account roster
+    # around the write and narrow by the name written.
+    def roster() -> list[JsonObject]:
+        return [s for s in _account_roster(client) if s.get("id") is not None]
 
-    before = roster_ids()
-    client.post("/addStudentServlet", student_payload(**fields))
-    created = roster_ids() - before
-    if not created:
-        raise ApiError(
-            "Creating the student did not take: no new student appeared. "
-            "The server returns HTTP 200 even when it stores nothing."
-        )
-    return {
-        "ok": True,
-        "name": f"{fields['first_name']} {fields['last_name']}",
-        "student_id": created.pop() if len(created) == 1 else None,
-    }
+    name = f"{fields['first_name']} {fields['last_name']}"
+    listed = f"{fields['last_name']}, {fields['first_name']}"
+    before = {str(s.get("id")) for s in roster()}
+    result = commit(client, mutation)
+    student_id = resolve_created(
+        resource="student",
+        before=before,
+        after=roster(),
+        id_of=lambda s: s.get("id"),
+        matches=lambda s: str(s.get("name") or "").strip() == listed,
+        list_command="planbook students list",
+    )
+    return {**result, "name": name, "id": student_id}
 
 
 def find_student(
-    client: PlanbookClient, *, student_id: Any, class_id: Any
-) -> dict[str, Any] | None:
+    client: PlanbookClient, *, student_id: Id, class_id: Id
+) -> JsonObject | None:
     """The raw student record from the per-class endpoint, or None.
 
-    There is no get-one endpoint, and the account-wide list returns names
-    only, so a full record needs the class the student sits in.
+    There is no get-one endpoint, so a full record needs the class the student
+    sits in.
     """
-    body = client.post(
-        "/getStudentsServlet", {"classId": intish(class_id), "userMode": "T"}
-    )
-    students = body.get("students") if isinstance(body, dict) else None
-    if not isinstance(students, list):
-        # Same shape check as list_students: a missing list is drift (exit 65),
-        # not a not-found student (which would wrongly blame the caller).
-        raise SchemaDrift("getStudentsServlet returned no `students` list.")
-    for record in students:
-        if isinstance(record, dict) and str(
-            record.get("studentId") or record.get("id")
-        ) == str(intish(student_id)):
+    for record in _class_students(client, class_id):
+        identity = record.get("studentId") or record.get("id")
+        if str(identity) == str(intish(student_id)):
             return record
     return None
 
@@ -145,17 +182,25 @@ def find_student(
 def update_student(
     client: PlanbookClient,
     *,
-    student_id: Any,
-    class_id: Any,
+    student_id: Id,
+    class_id: Id,
     dry_run: bool = False,
-    **fields: Any,
-) -> dict[str, Any]:
+    **fields: str | None,
+) -> Result:
     """Update a student, carrying over whatever the caller did not name.
 
     `/updateStudentServlet` replaces the whole record, so a payload built from
     defaults blanks the email, phone, parent email, code and birthdate. Reads
     the current record first, keyed by the class the student is in.
     """
+    if all(value is None for value in fields.values()):
+        # Checked before the read: once carry-over fills these from the saved
+        # student, the resend is indistinguishable from a real edit.
+        raise UsageError(
+            "Nothing to write. Pass at least one of --first-name, --last-name, "
+            "--middle-name, --code, --email, --parent-email, --phone, "
+            "--birthdate."
+        )
     existing = find_student(client, student_id=student_id, class_id=class_id)
     if existing is None:
         raise ApiError(
@@ -163,55 +208,86 @@ def update_student(
             "the student is in so their other fields are not lost."
         )
 
-    def keep(name: str, *raw_keys: str) -> str:
-        value = fields.get(name)
-        if value not in (None, ""):
-            return str(value)
-        for key in raw_keys:
-            if existing.get(key) not in (None, ""):
-                return str(existing[key])
-        return ""
-
+    edit = resolve(STUDENT_FIELDS, existing, fields)
+    carried = resolve(CARRIED_STUDENT_FIELDS, existing, fields)
     payload = student_payload(
         student_id=student_id,
-        first_name=keep("first_name", "firstName"),
-        last_name=keep("last_name", "lastName"),
-        code=keep("code", "code", "studentCode"),
-        email=keep("email", "emailAddress", "studentEmailAddress"),
-        phone=keep("phone", "phoneNumber", "studentPhoneNumber"),
-        parent_email=keep("parent_email", "parentEmailAddress"),
-        birthdate=keep("birthdate", "birthDate", "studentBirthDate"),
-        middle_name=keep("middle_name", "middleName", "studentMiddleName"),
-        photo_url=keep("photo_url", "photoUrl", "studentPhotoUrl"),
-        district_id=keep("district_id", "schoolDistrictId", "districtId") or "0",
+        **edit.values,
+        **carried.values,
+    )
+    mutation = Mutation(
+        resource="student",
+        operation="update",
+        requests=[Request("/updateStudentServlet", payload)],
+        before={
+            "id": intish(student_id),
+            "first_name": existing.get("firstName"),
+            "last_name": existing.get("lastName"),
+            "code": existing.get("code"),
+            "email": existing.get("emailAddress"),
+        },
+        named=edit.named,
+        checks=edit.checks,
+        flags=edit.flags,
     )
     if dry_run:
-        return {
-            "dry_run": True,
-            "endpoint": "/updateStudentServlet",
-            "payload": payload,
-        }
-    client.post("/updateStudentServlet", payload)
-    return {"ok": True, "student_id": intish(student_id)}
+        return preview(mutation)
 
-
-def delete_student(client: PlanbookClient, *, student_id: Any) -> dict[str, Any]:
-    client.post(
-        "/deleteStudentServlet", {"studentId": intish(student_id), "userMode": "T"}
+    result = commit(
+        client,
+        mutation,
+        read=lambda: find_student(client, student_id=student_id, class_id=class_id),
     )
-    return {"ok": True, "deleted_student_id": intish(student_id)}
+    return {**result, "id": intish(student_id)}
 
 
-def get_attendance(client: PlanbookClient, *, class_id: Any, date: str) -> Any:
-    """Attendance for one class on one date. Read-only: this endpoint is GET,
-    and no write endpoint exists under the same path."""
+def delete_student(
+    client: PlanbookClient,
+    *,
+    student_id: Id,
+    class_id: Id | None = None,
+    dry_run: bool = False,
+) -> Result:
+    payload = {"studentId": intish(student_id), "userMode": "T"}
+    mutation = Mutation(
+        resource="student",
+        operation="delete",
+        requests=[Request("/deleteStudentServlet", payload)],
+    )
+    if dry_run:
+        if class_id is not None:
+            existing = find_student(client, student_id=student_id, class_id=class_id)
+            if existing is not None:
+                mutation.before = {
+                    "id": intish(student_id),
+                    "first_name": existing.get("firstName"),
+                    "last_name": existing.get("lastName"),
+                }
+        return preview(mutation)
+    require_intent(mutation, confirmed=False)
+    return commit(
+        client,
+        mutation,
+        # No get-one endpoint, so the read-back needs the student's class.
+        verify=(
+            None
+            if class_id is None
+            else lambda: find_student(client, student_id=student_id, class_id=class_id)
+        ),
+        result={"deleted_student_id": intish(student_id)},
+    )
+
+
+def get_attendance(client: PlanbookClient, *, class_id: Id, date: str) -> JsonValue:
+    """Attendance for one class on one date. GET-only, and there is no write
+    endpoint under the same path."""
     return client.get(
         "/services/planbook/attendance/get",
         {"classId": intish(class_id), "date": date},
     )
 
 
-def get_scores(client: PlanbookClient, *, class_id: Any) -> Any:
+def get_scores(client: PlanbookClient, *, class_id: Id) -> JsonValue:
     """Grade periods and assignments with scores for one class."""
     return client.post(
         "/getStudentScoresServlet",
@@ -219,10 +295,20 @@ def get_scores(client: PlanbookClient, *, class_id: Any) -> Any:
     )
 
 
-def list_templates(client: PlanbookClient, *, teacher_id: Any) -> Any:
-    body = client.get(
+def raw_templates(client: PlanbookClient, *, teacher_id: Id) -> JsonValue:
+    """The undecoded template body. Backs `templates --raw`."""
+    return client.get(
         "/services/planbook/template/get", {"teacherId": intish(teacher_id)}
     )
-    if isinstance(body, dict) and set(body) == {"templates"}:
-        return body["templates"]
-    return body
+
+
+def list_templates(client: PlanbookClient, *, teacher_id: Id) -> list[Template]:
+    return [
+        projection.template(t)
+        for t in unwrap(
+            raw_templates(client, teacher_id=teacher_id),
+            "templates",
+            where="template/get",
+            required=False,
+        )
+    ]

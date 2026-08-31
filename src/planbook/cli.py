@@ -395,6 +395,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub_lesson = s_les.add_parser("get", help="read one saved lesson")
     _class_id(sub_lesson, required=True)
     _date_arg(sub_lesson, "--date", required=True)
+    sub_lesson.add_argument(
+        "--raw", action="store_true", help="the untouched wire record"
+    )
     sub_lesson.set_defaults(func=cmd_lessons_get)
     sub_lesson = s_les.add_parser("delete", help="clear the lesson on one date")
     _class_id(sub_lesson, required=True)

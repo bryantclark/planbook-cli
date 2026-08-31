@@ -68,3 +68,33 @@ def test_todos_list_projects_and_raw_does_not():
     client = PlanbookClient("t.t.t")
     assert list_todos(client)[0]["priority"] == "medium"
     assert raw_todos(client) == wire
+
+
+def test_lesson_projects_wire_keys_into_the_set_vocabulary():
+    from planbook import projection
+    from planbook.types import Lesson
+
+    projected = projection.lesson(
+        {
+            "classId": 1,
+            "lessonId": 5,
+            "lessonText": "<p>a &amp; b</p>",
+            "homeworkText": "read ch. 4",
+            "tab4Text": "extra",
+            "unitId": 0,
+        },
+        date="09/01/2026",
+    )
+    assert set(projected) == set(Lesson.__annotations__)
+    assert projected["text"] == "<p>a &amp; b</p>"
+    assert projected["homework"] == "read ch. 4"
+    assert projected["section4"] == "extra"
+    assert not any(k in projected for k in ("lessonText", "homeworkText", "tab4Text"))
+
+
+def test_lesson_takes_the_date_from_the_caller():
+    # A lesson carries no date on the wire; it belongs to the day it came from.
+    from planbook import projection
+
+    assert projection.lesson({"classId": 1}, date="09/01/2026")["date"] == "09/01/2026"
+    assert projection.lesson({"classId": 1})["date"] is None

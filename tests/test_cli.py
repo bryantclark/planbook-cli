@@ -4,7 +4,7 @@ import urllib.parse
 import pytest
 import responses
 
-from conftest import event_list, lesson_days, saved_lesson, stub
+from conftest import DATE, event_list, lesson_days, saved_lesson, stub
 from planbook import cli
 from planbook.client import PlanbookClient
 from planbook.resources.events import new_event_payload
@@ -323,6 +323,22 @@ def test_students_create_dry_run_is_offline(capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["dry_run"] is True
     assert out["payload"]["studentFirstName"] == "Ada"
+
+
+@responses.activate
+def test_lessons_get_projects_and_raw_returns_the_wire_record(capsys, session_file):
+    wire = saved_lesson(lessonText="<p>a &amp; b</p>", homeworkText="read ch. 4")
+    stub("/getLessonsEvents", wire)
+    stub("/getLessonsEvents", wire)
+    args = ["lessons", "get", "--class-id", "1", "--date", DATE]
+    assert cli.main(args) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["text"] == "<p>a &amp; b</p>"
+    assert out["homework"] == "read ch. 4"
+    assert out["date"] == DATE
+    assert "lessonText" not in out
+    assert cli.main([*args, "--raw"]) == 0
+    assert "lessonText" in json.loads(capsys.readouterr().out)
 
 
 @responses.activate

@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from .. import projection
 from ..cli_support import (
     STDIN,
     client_from,
@@ -360,12 +361,11 @@ def cmd_lessons_week(args: argparse.Namespace) -> None:
 
 
 def cmd_lessons_get(args: argparse.Namespace) -> None:
-    lesson = find_lesson(client_from(args), class_id=args.class_id, date=args.date)
-    emit(
-        lesson
-        if lesson is not None
-        else {"found": False, "class_id": args.class_id, "date": args.date}
-    )
+    found = find_lesson(client_from(args), class_id=args.class_id, date=args.date)
+    if found is None:
+        emit({"found": False, "class_id": args.class_id, "date": args.date})
+        return
+    emit(found if args.raw else projection.lesson(found, date=args.date))
 
 
 def cmd_lessons_delete(args: argparse.Namespace) -> None:

@@ -176,6 +176,26 @@ class WeekLesson(TypedDict):
     attachments: list[object]
 
 
+class Lesson(TypedDict):
+    """One saved lesson, in the vocabulary `lessons set` writes."""
+
+    class_id: object
+    date: object
+    lesson_id: object
+    title: object
+    text: object
+    homework: object
+    notes: object
+    section4: object
+    section5: object
+    section6: object
+    unit_id: object
+    unit_title: object
+    standards: list[object]
+    assignments: list[object]
+    attachments: list[object]
+
+
 class WeekDay(TypedDict):
     """One day of a week view."""
 

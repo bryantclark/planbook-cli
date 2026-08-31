@@ -9,14 +9,13 @@ import os
 import sys
 import time
 import webbrowser
-from typing import NoReturn
+from typing import NamedTuple, NoReturn
 
 from .. import browser_cookies, config
 from .. import token as pbtoken
 from ..cli_support import emit
 from ..client import PlanbookClient
 from ..errors import (
-    SIGN_IN_HELP,
     SIGN_IN_URL,
     ApiError,
     NotAuthenticated,
@@ -51,29 +50,48 @@ def cmd_auth_token(args: argparse.Namespace) -> None:
             "and copy a fresh one."
         )
 
+    verified = False
     if not args.no_verify:
         client = PlanbookClient(value, verbose=args.verbose)
-        list_classes(client)  # raises NotAuthenticated if the token is bad
+        try:
+            list_classes(client)
+            verified = True
+        except ApiError:
+            pass
 
     path = config.save_session(value, text(info, "email"))
     emit(
         {
             "ok": True,
             "stored": str(path),
-            "verified": not args.no_verify,
+            "verified": verified,
             "email": info.get("email"),
             "expires_in_hours": info.get("expires_in_hours"),
         }
     )
 
 
-def _best_browser_token(args: argparse.Namespace) -> tuple[int, str, str] | None:
+class _Candidate(NamedTuple):
+    """A storable browser token, and whether a live call proved it works."""
+
+    remaining: int
+    browser: str
+    token: str
+    verified: bool
+
+
+def _best_browser_token(args: argparse.Namespace) -> _Candidate | None:
     """The longest-lived usable token across local browsers, or None.
 
     Auth-server tokens last about an hour, so a browser signed in earlier can
     hold a nearly-dead token while another holds a fresh one; take the freshest.
+
+    Only `NotAuthenticated` proves a token dead. An `ApiError` says the account
+    data broke the call, which happens with a perfectly good token, so those are
+    kept behind every token a live call actually verified.
     """
-    best: tuple[int, str, str] | None = None
+    verified: _Candidate | None = None
+    unverified: _Candidate | None = None
     preferred = args.browser
     if not preferred:
         from ..default_browser import default_browser_name
@@ -85,19 +103,23 @@ def _best_browser_token(args: argparse.Namespace) -> tuple[int, str, str] | None
         if pbtoken.is_expired(candidate):
             continue
         remaining = _seconds_left(candidate)
-        if best is not None and remaining <= best[0]:
+        if verified is not None and remaining <= verified.remaining:
             continue
         try:
             list_classes(PlanbookClient(candidate, verbose=args.verbose))
-        except PlanbookError:
-            # A rejected token does not reliably say notLoggedIn - one
-            # answered "date must not be null" - so any failure disqualifies.
+        except NotAuthenticated:
             continue
-        best = (remaining, browser, candidate)
-    return best
+        except ApiError:
+            if unverified is None or remaining > unverified.remaining:
+                unverified = _Candidate(remaining, browser, candidate, False)
+            continue
+        except PlanbookError:
+            continue
+        verified = _Candidate(remaining, browser, candidate, True)
+    return verified or unverified
 
 
-def _store_token(browser: str, token: str) -> None:
+def _store_token(browser: str, token: str, verified: bool = True) -> None:
     info = pbtoken.describe(token)
     path = config.save_session(token, text(info, "email"))
     emit(
@@ -107,6 +129,7 @@ def _store_token(browser: str, token: str) -> None:
             "source": browser,
             "email": info.get("email"),
             "expires_in_hours": info.get("expires_in_hours"),
+            "verified": verified,
         }
     )
 
@@ -128,7 +151,7 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
     stored = config.load_session_or_none()
     if stored and not pbtoken.is_expired(stored):
         held = _seconds_left(stored)
-        if best is None or held >= best[0]:
+        if best is None or held >= best.remaining:
             info = pbtoken.describe(stored)
             emit(
                 {
@@ -142,8 +165,7 @@ def cmd_auth_import(args: argparse.Namespace) -> None:
             return
 
     if best is not None:
-        _remaining, browser, candidate = best
-        _store_token(browser, candidate)
+        _store_token(best.browser, best.token, best.verified)
         return
 
     # Nothing found. In a terminal, guide the sign-in and poll for a token.
@@ -186,9 +208,8 @@ def _guided_sign_in(args: argparse.Namespace) -> None:
         time.sleep(3)
         best = _best_browser_token(args)
         if best is not None:
-            _remaining, browser, candidate = best
             print("Got it.", file=sys.stderr)
-            _store_token(browser, candidate)
+            _store_token(best.browser, best.token, best.verified)
             return
         left = int(deadline - time.monotonic())
         print(f"  waiting for sign-in... {left}s left", file=sys.stderr)
@@ -222,12 +243,10 @@ def cmd_auth_status(args: argparse.Namespace) -> None:
     try:
         body = list_classes(client)
     except ApiError as exc:
-        # A token the server has stopped honouring does not reliably come back
-        # as notLoggedIn - one answered "date must not be null". Drift and
-        # transport failures keep their own codes; neither means "sign in".
-        raise NotAuthenticated(
-            f"The stored token was rejected: {exc}" + SIGN_IN_HELP
-        ) from exc
+        # The session is good - `/getClasses2` is not. Reporting that as a
+        # rejected token sends a signed-in user off to sign in again.
+        emit({**status, "classes_unavailable": str(exc)})
+        return
     emit(
         {
             **status,

@@ -326,18 +326,53 @@ def test_students_create_dry_run_is_offline(capsys):
 
 
 @responses.activate
-def test_auth_status_keeps_stdout_empty_on_failure(capsys, monkeypatch, tmp_path):
-    # The output contract: stdout is JSON on success, empty on failure.
+def test_check_does_not_call_a_broken_endpoint_a_sign_in_problem(
+    capsys, monkeypatch, tmp_path
+):
+    # `check` is the first call every agent makes. Reporting exit 77 here sends
+    # a signed-in user to re-authenticate over a server-side fault.
+    session = tmp_path / "token.json"
+    session.write_text(json.dumps({"token": "t.t.t"}))
+    monkeypatch.setattr("planbook.config.session_path", lambda: session)
+    monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
+    stub("/getClasses2", {"error": "true", "msg": "date must not be null"})
+    assert cli.main(["check"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out.strip() == ""
+    assert "date must not be null" in captured.err
+
+
+@responses.activate
+def test_auth_status_reports_a_live_session_when_classes_break(
+    capsys, monkeypatch, tmp_path
+):
+    # A broken `/getClasses2` is not a rejected session; saying so sends a
+    # signed-in user to sign in again.
     # "t.t.t" has no exp claim, so the client treats it as unexpired.
     session = tmp_path / "token.json"
     session.write_text(json.dumps({"token": "t.t.t"}))
     monkeypatch.setattr("planbook.config.session_path", lambda: session)
     monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
     stub("/getClasses2", {"error": "true", "msg": "nope"})
+    assert cli.main(["auth", "status"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["authenticated"] is True
+    assert "nope" in out["classes_unavailable"]
+
+
+@responses.activate
+def test_auth_status_keeps_stdout_empty_when_the_token_is_rejected(
+    capsys, monkeypatch, tmp_path
+):
+    # The output contract: stdout is JSON on success, empty on failure.
+    session = tmp_path / "token.json"
+    session.write_text(json.dumps({"token": "t.t.t"}))
+    monkeypatch.setattr("planbook.config.session_path", lambda: session)
+    monkeypatch.delenv("PLANBOOK_TOKEN", raising=False)
+    stub("/getClasses2", {"notLoggedIn": "true"})
     assert cli.main(["auth", "status"]) == 77
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
-    assert "rejected" in captured.err
 
 
 def test_bulk_rejects_a_non_string_text_field(tmp_path):

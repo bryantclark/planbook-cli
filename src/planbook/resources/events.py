@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
-
+from .. import projection
 from ..client import PlanbookClient
-from ..errors import ApiError, UsageError
+from ..errors import UsageError
+from ..mutations import (
+    Mutation,
+    Request,
+    commit,
+    preview,
+    require_intent,
+    resolve_created,
+)
+from ..narrow import flag, records, string, text
+from ..types import (
+    Event,
+    FormPayload,
+    Id,
+    JsonObject,
+    JsonRecord,
+    JsonValue,
+    Result,
+)
 from ..wire import intish, parse_time
 from .lessons import lessons_between
 
@@ -20,8 +37,44 @@ def list_events(
     end: str = "",
     limit: int = 75,
     search: str = "",
-) -> Any:
-    body = client.post(
+) -> list[Event]:
+    """Events, projected to readable keys."""
+    return [
+        projection.event(e)
+        for e in wire_events(client, start=start, end=end, limit=limit, search=search)
+    ]
+
+
+def wire_events(
+    client: PlanbookClient,
+    *,
+    start: str = "",
+    end: str = "",
+    limit: int = 75,
+    search: str = "",
+) -> list[JsonObject]:
+    """The wire records. Deletes resend the whole record, so they need these."""
+    return _event_records(
+        raw_events(client, start=start, end=end, limit=limit, search=search)
+    )
+
+
+def _event_records(body: JsonValue) -> list[JsonObject]:
+    inner: JsonValue = (
+        body["events"] if isinstance(body, dict) and "events" in body else body
+    )
+    return records(inner, where="getEvents.events")
+
+
+def raw_events(
+    client: PlanbookClient,
+    *,
+    start: str = "",
+    end: str = "",
+    limit: int = 75,
+    search: str = "",
+) -> JsonValue:
+    return client.post(
         "/getEvents",
         {
             "userMode": "T",
@@ -34,46 +87,41 @@ def list_events(
             "showEventSchedules": EVENT_SCHEDULES,
         },
     )
-    if isinstance(body, dict) and set(body) == {"events"}:
-        return body["events"]
-    return body
 
 
 def event_payload(
-    event: dict[str, Any], *, current_date: str | None = None, shift: str = "N"
-) -> dict[str, str]:
+    event: JsonObject, *, current_date: str | None = None, shift: str = "N"
+) -> FormPayload:
     """Flatten an event record into the form fields the server expects.
 
     Three fields fail silently when wrong - the server answers `{"events": []}`
-    with no error and does nothing:
+    and does nothing:
 
       eventCurrentDate  empty when creating; the occurrence date when deleting
       shiftLessons      "N" when creating; "false" when deleting
-      verifyShift       "true" only runs a conflict check and commits nothing;
-                        the app sends "true" then "false" to confirm
+      verifyShift       "true" validates and commits nothing; "false" commits
     """
     return {
         "eventId": intish(event.get("eventId") or event.get("id")),
-        "googleId": event.get("googleId") or "",
-        "googleCalendarId": event.get("googleCalendarId") or "",
+        "googleId": string(event, "googleId"),
+        "googleCalendarId": string(event, "googleCalendarId"),
         "customEventId": intish(event.get("customEventId")),
-        "eventDate": event.get("eventDate") or "",
-        "endDate": event.get("endDate") or event.get("eventDate") or "",
-        "repeats": event.get("repeats") or "daily",
-        "eventText": event.get("eventText") or "",
-        "eventStartTime": parse_time(event.get("eventStartTime")),
-        "eventEndTime": parse_time(event.get("eventEndTime")),
-        "eventTitle": event.get("eventTitle") or "",
+        "eventDate": string(event, "eventDate"),
+        "endDate": string(event, "endDate") or string(event, "eventDate"),
+        "repeats": string(event, "repeats", "daily"),
+        "eventText": string(event, "eventText"),
+        "eventStartTime": parse_time(text(event, "eventStartTime")),
+        "eventEndTime": parse_time(text(event, "eventEndTime")),
+        "eventTitle": string(event, "eventTitle"),
         "eventCurrentDate": current_date if current_date is not None else "",
         "specialDayId": intish(event.get("specialDayId")),
         "schoolId": intish(event.get("schoolId")),
         "districtId": intish(event.get("districtId")),
-        "noSchool": "true" if event.get("noSchool") else "false",
-        "noCycle": "true" if event.get("noCycle") else "false",
-        "privateFlag": "true" if event.get("privateFlag") else "false",
+        "noSchool": "true" if flag(event.get("noSchool")) else "false",
+        "noCycle": "true" if flag(event.get("noCycle")) else "false",
+        "privateFlag": "true" if flag(event.get("privateFlag")) else "false",
         "shiftLessons": shift,
-        # "false" means commit. See the note above.
-        "verifyShift": "false",
+        "verifyShift": "false",  # "true" would validate and commit nothing
         "stickerId": intish(event.get("stickerId")),
         "limit": "75",
         "userMode": "T",
@@ -91,11 +139,10 @@ def new_event_payload(
     private: bool = False,
     no_school: bool = False,
     repeats: str = "daily",
-) -> dict[str, str]:
+) -> FormPayload:
     """The exact form /addEvent receives.
 
-    One builder so that --dry-run cannot drift from the real write; the
-    preview used to omit updatedFields and updateCurrentEvent.
+    One builder, so `--dry-run` cannot drift from the real write.
     """
     payload = event_payload(
         {
@@ -116,7 +163,7 @@ def new_event_payload(
 
 
 def create_event(
-    client: PlanbookClient,
+    client: PlanbookClient | None,
     *,
     title: str,
     date: str,
@@ -128,20 +175,8 @@ def create_event(
     no_school: bool = False,
     repeats: str = "daily",
     force: bool = False,
-) -> Any:
-    if no_school and not force:
-        # Marking a day no-school DELETES the lessons on it, permanently -
-        # removing the event afterwards does not bring them back.
-        doomed = lessons_between(client, start=date, end=end_date or date)
-        if doomed:
-            names = ", ".join(sorted({str(x["class_name"]) for x in doomed}))
-            raise UsageError(
-                f"{len(doomed)} lesson(s) already exist on {date}"
-                + (f"-{end_date}" if end_date and end_date != date else "")
-                + f" ({names}).\nMarking the day no-school deletes them "
-                "permanently; deleting the event later does not restore them. "
-                "Pass --force if that is what you want."
-            )
+    dry_run: bool = False,
+) -> Result:
     payload = new_event_payload(
         title=title,
         date=date,
@@ -153,66 +188,170 @@ def create_event(
         no_school=no_school,
         repeats=repeats,
     )
+    mutation = Mutation(
+        resource="event",
+        operation="create",
+        requests=[Request("/addEvent", payload)],
+    )
+
+    # A no-school day permanently deletes every lesson in range, so count them
+    # first. --force already means "delete whatever is there", so the count is
+    # only worth a request for a preview or a run that still needs --yes.
+    if no_school and (dry_run or not force):
+        assert client is not None  # the caller only omits it for an offline preview
+        doomed = lessons_between(client, start=date, end=end_date or date)
+        if doomed:
+            mutation.cascade = {
+                "lessons": len(doomed),
+                "classes": sorted({str(x["class_name"]) for x in doomed}),
+                "dates": sorted({str(x.get("date", date)) for x in doomed}),
+            }
+    if dry_run:
+        return preview(mutation)
+    require_intent(mutation, confirmed=force)
+    assert client is not None  # only an offline preview runs without one
 
     # /addEvent does not report the id it created, so diff the list around the
-    # write to hand back a reference the caller can delete or update.
-    def event_ids(records: Any) -> list[dict[str, Any]]:
-        return [r for r in records or [] if isinstance(r, dict)]
-
+    # write and narrow by what was written.
     end = end_date or date
-    before = {
-        str(e.get("eventId") or e.get("id"))
-        for e in event_ids(list_events(client, start=date, end=end))
+    before = {str(event_id_of(e)) for e in wire_events(client, start=date, end=end)}
+    result = commit(client, mutation)
+    event_id = resolve_created(
+        resource="event",
+        before=before,
+        after=wire_events(client, start=date, end=end),
+        id_of=event_id_of,
+        matches=lambda e: (
+            str(e.get("eventTitle")) == str(title)
+            and str(e.get("eventDate")) == str(date)
+        ),
+        list_command=f"planbook events list --start {date} --end {end}",
+    )
+    return {
+        **result,
+        "title": title,
+        "date": date,
+        "id": event_id,
     }
-    client.post("/addEvent", payload)
-    created = [
-        e
-        for e in event_ids(list_events(client, start=date, end=end))
-        if str(e.get("eventId") or e.get("id")) not in before
-    ]
-    if not created:
-        raise ApiError(
-            "Creating the event did not take: no new event appeared. "
-            "The server returns HTTP 200 even when it stores nothing."
-        )
-    result: dict[str, Any] = {"ok": True, "title": title, "date": date}
-    result["event_id"] = created[0].get("eventId") if len(created) == 1 else None
-    return result
 
 
-def find_event(client: PlanbookClient, event_id: Any) -> dict[str, Any]:
-    wanted = str(event_id)
-    # No date window: the server's default range would hide events outside it
-    # and this would report "no such event" for one that exists.
-    for event in list_events(client, start="", end="", limit=1000) or []:
-        if str(event.get("eventId") or event.get("id")) == wanted:
-            return cast(dict[str, Any], event)
+def event_id_of(record: JsonRecord) -> object:
+    """An event's id. Some responses key it `eventId`, some just `id`."""
+    return record.get("eventId") or record.get("id")
+
+
+def all_events(client: PlanbookClient) -> list[JsonObject]:
+    """Every event on the account.
+
+    No date window: the server's default range hides events outside it, so a
+    lookup by id would miss one that exists.
+    """
+    return wire_events(client, start="", end="", limit=1000)
+
+
+def find_event(client: PlanbookClient, event_id: Id) -> JsonObject:
+    return _match(all_events(client), event_id)
+
+
+def _match(events: list[JsonObject], event_id: Id) -> JsonObject:
+    for event in events:
+        if str(event_id_of(event)) == str(event_id):
+            return event
     raise UsageError(f"No event with id {event_id}. Run `planbook events list`.")
 
 
 def delete_event(
     client: PlanbookClient,
     *,
-    event_id: Any,
+    event_id: Id,
     occurrence_only: bool = False,
-) -> Any:
+    dry_run: bool = False,
+    confirmed: bool = False,
+) -> Result:
     """Delete an event.
 
     By default this removes the whole series. `occurrence_only` drops just
     the one date, which matters for a repeating event.
     """
-    event = find_event(client, event_id)
+    events = all_events(client)
+    event = _match(events, event_id)
     payload = event_payload(
         event,
-        current_date=event.get("eventCurrentDate") or event.get("eventDate") or "",
+        current_date=string(event, "eventCurrentDate") or string(event, "eventDate"),
         shift="false",
     )
     payload["deleteCurrentEvent"] = "true" if occurrence_only else "false"
     payload["currentSchoolId"] = "0"
-    client.post("/deleteEvent", payload)
+    doomed_date = str(payload["eventCurrentDate"])
+    mutation = Mutation(
+        resource="event",
+        operation="delete",
+        requests=[Request("/deleteEvent", payload)],
+        before=projection.event(event),
+        effects={"scope": "occurrence" if occurrence_only else "series"},
+    )
+    if not occurrence_only:
+        # A series delete removes dates the caller never named, so count them.
+        # A date range counts as a series even when one occurrence comes back:
+        # the list endpoint does not always expand a repeat.
+        occurrences = _series_dates(events, event_id)
+        spans_days = bool(event.get("endDate")) and str(event.get("endDate")) != str(
+            event.get("eventDate")
+        )
+        if len(occurrences) > 1 or spans_days:
+            mutation.cascade = {
+                "occurrences": max(len(occurrences), 2 if spans_days else 0),
+                "dates": occurrences,
+            }
+    if dry_run:
+        return preview(mutation)
+    require_intent(mutation, confirmed=confirmed)
+    # An occurrence delete leaves the rest of the series behind, and every
+    # occurrence carries the same event id - so the read-back has to ask
+    # whether this date is gone, not whether the id is.
+    result = commit(
+        client,
+        mutation,
+        verify=(
+            (lambda: _occurrence_or_none(client, event_id, doomed_date))
+            if occurrence_only
+            else (lambda: _find_or_none(client, event_id))
+        ),
+    )
     return {
-        "ok": True,
+        **result,
         "deleted_event_id": payload["eventId"],
         "title": payload["eventTitle"],
         "scope": "occurrence" if occurrence_only else "series",
     }
+
+
+def _series_dates(events: list[JsonObject], event_id: Id) -> list[str]:
+    """Every date the series occupies, out of a listing already fetched."""
+    wanted = str(event_id)
+    dates = {
+        str(e.get("eventCurrentDate") or e.get("eventDate"))
+        for e in events
+        if str(event_id_of(e)) == wanted
+        and (e.get("eventCurrentDate") or e.get("eventDate"))
+    }
+    return sorted(dates)
+
+
+def _occurrence_or_none(
+    client: PlanbookClient, event_id: Id, date: str
+) -> JsonObject | None:
+    """The one occurrence on `date`, or None once it is gone."""
+    for event in all_events(client):
+        if str(event_id_of(event)) == str(event_id) and (
+            str(event.get("eventCurrentDate") or event.get("eventDate")) == date
+        ):
+            return event
+    return None
+
+
+def _find_or_none(client: PlanbookClient, event_id: Id) -> JsonObject | None:
+    try:
+        return find_event(client, event_id)
+    except UsageError:
+        return None

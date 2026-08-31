@@ -4,56 +4,40 @@ from __future__ import annotations
 
 import argparse
 
-from .. import api
-from ..cli_support import client_from, emit
-
-
-def _unit_dry(args: argparse.Namespace, action: str) -> api.Payload:
-    return api.unit_payload(
-        action=action,
-        class_id=args.class_id,
-        unit_id=getattr(args, "unit_id", 0) or 0,
-        number=getattr(args, "number", "") or "",
-        title=getattr(args, "title", "") or "",
-        description=getattr(args, "description", "") or "",
-        start=getattr(args, "start", "") or "",
-        end=getattr(args, "end", "") or "",
-    )
+from ..cli_support import client_from, emit, emit_created
+from ..resources.units import (
+    create_unit,
+    delete_unit,
+    list_units,
+    raw_units,
+    update_unit,
+)
 
 
 def cmd_units_list(args: argparse.Namespace) -> None:
-    emit(api.list_units(client_from(args), raw=args.raw))
+    client = client_from(args)
+    emit(raw_units(client) if args.raw else list_units(client))
 
 
 def cmd_units_create(args: argparse.Namespace) -> None:
-    if args.dry_run:
-        emit(
-            {
-                "dry_run": True,
-                "endpoint": "/updateUnit",
-                "payload": _unit_dry(args, "A"),
-            }
-        )
-        return
-    client = client_from(args)
-    emit(
-        api.create_unit(
-            client,
+    emit_created(
+        args,
+        create_unit(
+            None if args.dry_run else client_from(args),
             class_id=args.class_id,
             number=args.number,
             title=args.title,
             description=args.description or "",
             start=args.start or "",
             end=args.end or "",
-        )
+            dry_run=args.dry_run,
+        ),
     )
 
 
 def cmd_units_update(args: argparse.Namespace) -> None:
-    # Read-modify-write, so the honest --dry-run preview is the carried-over
-    # record. update_unit reads either way and only skips the write.
     emit(
-        api.update_unit(
+        update_unit(
             client_from(args),
             unit_id=args.unit_id,
             class_id=args.class_id,
@@ -68,14 +52,11 @@ def cmd_units_update(args: argparse.Namespace) -> None:
 
 
 def cmd_units_delete(args: argparse.Namespace) -> None:
-    if args.dry_run:
-        emit(
-            {
-                "dry_run": True,
-                "endpoint": "/updateUnit",
-                "payload": _unit_dry(args, "D"),
-            }
+    emit(
+        delete_unit(
+            client_from(args),
+            unit_id=args.unit_id,
+            class_id=args.class_id,
+            dry_run=args.dry_run,
         )
-        return
-    client = client_from(args)
-    emit(api.delete_unit(client, unit_id=args.unit_id, class_id=args.class_id))
+    )

@@ -3,23 +3,39 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from ..client import PlanbookClient
 from ..errors import SchemaDrift, UsageError
+from ..mutations import Mutation, Request, preview
+from ..narrow import as_object, records
+from ..types import (
+    Attachment,
+    AttachmentLink,
+    FormPayload,
+    Id,
+    JsonObject,
+    JsonValue,
+    Result,
+    Standard,
+)
 from ..wire import intish
 
 
-def list_assignments(client: PlanbookClient) -> Any:
-    body = client.post("/getAssignments")
-    if isinstance(body, dict) and set(body) == {"assignments"}:
-        return body["assignments"]
-    return body
+def list_assignments(client: PlanbookClient) -> list[JsonObject]:
+    """Assignments, unwrapped from their envelope."""
+    return _unwrap_records(client.post("/getAssignments"), "assignments")
+
+
+def _unwrap_records(body: JsonValue, key: str) -> list[JsonObject]:
+    """The records under `key`, when the body is that single-key envelope."""
+    if isinstance(body, dict) and set(body) == {key}:
+        return records(body[key], where=key)
+    return records(body, where=key)
 
 
 def special_days(
-    client: PlanbookClient, *, teacher_id: Any, year_id: Any, school_id: Any = 0
-) -> Any:
+    client: PlanbookClient, *, teacher_id: Id, year_id: Id, school_id: Id = 0
+) -> JsonValue:
     return client.post(
         "/getSpecialDays",
         {
@@ -30,28 +46,33 @@ def special_days(
     )
 
 
-def settings(client: PlanbookClient) -> Any:
+def settings(client: PlanbookClient) -> JsonValue:
     return client.post("/getSettings")
 
 
-def standards(client: PlanbookClient, *, search: str = "", raw: bool = False) -> Any:
+def raw_standards(client: PlanbookClient) -> JsonValue:
+    """The undecoded `/getStandards` body. Backs `standards --raw`."""
+    return client.post("/getStandards")
+
+
+def standards(client: PlanbookClient, *, search: str = "") -> list[Standard]:
     """Standards available to the account.
 
     `dbId` is what attaches a standard to a lesson; the human `id` (like
     "3.NBT.A.1") is not accepted by the write path.
     """
-    body = client.post("/getStandards")
-    if raw or not isinstance(body, dict):
-        return body
-    items = body.get("standards") or []
+    items = records(
+        as_object(raw_standards(client), where="getStandards").get("standards") or [],
+        where="getStandards.standards",
+    )
     out = [
-        {
-            "db_id": st.get("dbId"),
-            "id": st.get("sI") or st.get("id"),
-            "description": st.get("sD") or st.get("desc"),
-            "subject": st.get("subject"),
-            "category": st.get("category"),
-        }
+        Standard(
+            db_id=st.get("dbId"),
+            id=st.get("sI") or st.get("id"),
+            description=st.get("sD") or st.get("desc"),
+            subject=st.get("subject"),
+            category=st.get("category"),
+        )
         for st in items
     ]
     if search:
@@ -64,7 +85,7 @@ def standards(client: PlanbookClient, *, search: str = "", raw: bool = False) ->
     return out
 
 
-# Read-only endpoints taking no arguments.  name -> (path, key to unwrap)
+# Read-only endpoints taking no arguments. name -> (path, key to unwrap)
 SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "assignments": ("/getAssignments", "assignments"),
     "assessments": ("/getAssessments", "assessments"),
@@ -72,10 +93,9 @@ SIMPLE_READS: dict[str, tuple[str, str | None]] = {
     "students": ("/services/planbook/student/getAllFromSchool", None),
     "comments": ("/getCommentsTo", None),
 }
-# /getStandardsReport and /services/planbook/newNote/filterNotes are not here
-# on purpose: each demands an integer parameter the server will not name, and
-# every spelling tried comes back with the same null-parse. Reachable through
-# `planbook raw` once a real request has been captured. See docs/API-NOTES.md.
+# /getStandardsReport and /services/planbook/newNote/filterNotes are missing on
+# purpose: each demands an integer parameter the server will not name. Reachable
+# through `planbook raw` once a real request has been captured.
 
 
 def simple_read(
@@ -83,8 +103,8 @@ def simple_read(
     name: str,
     *,
     raw: bool = False,
-    extra: dict[str, Any] | None = None,
-) -> Any:
+    extra: FormPayload | None = None,
+) -> JsonValue:
     """Fetch one of the argument-free read endpoints.
 
     Most wrap a single array in a single key; that envelope is unwrapped
@@ -99,39 +119,85 @@ def simple_read(
     return body
 
 
-def upload_attachment(client: PlanbookClient, file_path: str) -> dict[str, Any]:
-    """Upload a file to the account's resources.
+def upload(
+    client: PlanbookClient,
+    file_path: str,
+    *,
+    dry_run: bool = False,
+    replaces: bool | None = False,
+) -> Result:
+    """Upload one file, through the seam like every other write.
 
-    Returns the stored name and a signed S3 URL. Both are needed to attach it
-    to a lesson, and the URL is what the lesson stores - so re-uploading a
-    file with the same name replaces it everywhere it is linked.
+    `replaces` says the account already holds this name, so the upload
+    overwrites the stored file in every lesson linked to it. `None` means the
+    lookup failed, reported as a null: "could not check" and "replaces
+    nothing" must not be the same answer. The caller reads
+    the list once for the whole batch, so nothing here costs a request.
     """
     path = Path(file_path)
     if not path.is_file():
         raise UsageError(f"No such file: {file_path}")
+    name = path.name
+    mutation = Mutation(
+        resource="attachment",
+        operation="create",
+        # The real send is multipart, not a form field; say so in the preview.
+        requests=[
+            Request("/uploadAttachment", {"file": name, "encoding": "multipart"})
+        ],
+        effects=_replacement(name, replaces),
+    )
+    if dry_run:
+        return preview(mutation)
+    link = upload_attachment(client, file_path)
+    # `upload_attachment` fails on a response without a fileURL, which is this
+    # endpoint's postcondition - there is nothing further to read back.
+    result: Result = {"ok": True, "updated_fields": []}
+    if mutation.effects:
+        result["effects"] = mutation.effects
+    return {**result, **dict(link)}
+
+
+def _replacement(name: str, replaces: bool | None) -> Result:
+    """The `effects` entry for a name this upload may overwrite.
+
+    Absent means it replaces nothing. `null` means the lookup failed - not a
+    string, because a string is iterable and a caller looping the names would
+    silently get characters instead of failing.
+    """
+    if replaces is None:
+        return {"replaces_existing": None}
+    return {"replaces_existing": [name]} if replaces else {}
+
+
+def upload_attachment(client: PlanbookClient, file_path: str) -> AttachmentLink:
+    """Upload a file to the account's resources.
+
+    The lesson stores the signed URL itself, so re-uploading a file under the
+    same name replaces it everywhere it is linked.
+    """
+    path = Path(file_path)
     body = client.upload("/uploadAttachment", str(path))
     if not isinstance(body, dict) or "fileURL" not in body:
         raise SchemaDrift(f"uploadAttachment returned {body!r}")
-    return {"name": body.get("fileName") or path.name, "url": body["fileURL"]}
+    return AttachmentLink(
+        name=str(body.get("fileName") or path.name), url=str(body["fileURL"])
+    )
 
 
-def list_attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
-    body = attachments(client, teacher_id=teacher_id)
-    if isinstance(body, dict) and "fileList" in body:
-        return [
-            {
-                "name": f.get("fileKey"),
-                "url": f.get("fileUrl"),
-                "size": f.get("fileSize"),
-            }
-            for f in body["fileList"]
-        ]
-    return body
+def list_attachments(client: PlanbookClient, *, teacher_id: Id) -> list[Attachment]:
+    body = as_object(
+        attachments(client, teacher_id=teacher_id), where="getAttachmentList"
+    )
+    return [
+        Attachment(name=f.get("fileKey"), url=f.get("fileUrl"), size=f.get("fileSize"))
+        for f in records(body.get("fileList") or [], where="getAttachmentList.fileList")
+    ]
 
 
 def resolve_attachment(
-    client: PlanbookClient, reference: str, *, teacher_id: Any
-) -> dict[str, str]:
+    client: PlanbookClient, reference: str, *, teacher_id: Id
+) -> AttachmentLink:
     """Turn a local path or an existing resource name into name+URL.
 
     A path that exists on disk is uploaded; anything else is looked up among
@@ -139,9 +205,9 @@ def resolve_attachment(
     """
     if Path(reference).is_file():
         return upload_attachment(client, reference)
-    for item in list_attachments(client, teacher_id=teacher_id) or []:
-        if item.get("name") == reference:
-            return {"name": item["name"], "url": item["url"]}
+    for item in list_attachments(client, teacher_id=teacher_id):
+        if item["name"] == reference:
+            return AttachmentLink(name=str(item["name"]), url=str(item["url"]))
     raise UsageError(
         f"{reference!r} is neither a file on disk nor an existing resource. "
         "See `planbook attachments list`."
@@ -149,19 +215,17 @@ def resolve_attachment(
 
 
 def resolve_attachments(
-    client: PlanbookClient, references: list[str], *, teacher_id: Any
-) -> list[dict[str, str]]:
+    client: PlanbookClient, references: list[str], *, teacher_id: Id
+) -> list[AttachmentLink]:
     """Resolve several --attach refs, validating all before uploading any.
 
-    resolve_attachment uploads a local file as a side effect, so resolving one
-    ref at a time means a bad ref halfway through leaves earlier files uploaded
-    with nothing linking them. This checks every ref first - each must be a
-    file on disk or a known resource - then uploads.
+    Uploading is a side effect, so a bad ref halfway through would leave
+    earlier files uploaded with nothing linking them.
     """
     known = {
-        item.get("name")
-        for item in (list_attachments(client, teacher_id=teacher_id) or [])
-        if isinstance(item, dict)
+        str(item["name"])
+        for item in list_attachments(client, teacher_id=teacher_id)
+        if item["name"] is not None
     }
     unknown = [
         ref for ref in references if not Path(ref).is_file() and ref not in known
@@ -177,7 +241,7 @@ def resolve_attachments(
     ]
 
 
-def attachments(client: PlanbookClient, *, teacher_id: Any) -> Any:
+def attachments(client: PlanbookClient, *, teacher_id: Id) -> JsonValue:
     return client.post(
         "/getAttachmentList",
         {

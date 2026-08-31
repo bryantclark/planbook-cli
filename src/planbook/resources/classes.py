@@ -2,13 +2,32 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from collections.abc import Callable
 
+from .. import projection
 from ..client import PlanbookClient
-from ..errors import ApiError, SchemaDrift
+from ..errors import SchemaDrift, UsageError
+from ..mutations import (
+    Mutation,
+    Request,
+    commit,
+    preview,
+    require_intent,
+    resolve_created,
+)
+from ..narrow import as_object, flag, records, string
+from ..types import (
+    ClassList,
+    FormPayload,
+    Id,
+    JsonObject,
+    JsonRecord,
+    JsonValue,
+    Result,
+)
+from ..widen import json_list
 from ..wire import (
     DAY_ORDER,
-    DAY_PREFIXES,
     SCHEDULE_DAY_ORDER,
     build_schedule,
     edit_schedule,
@@ -16,53 +35,44 @@ from ..wire import (
     yn,
 )
 
+#: Re-exported: the class projection lives with every other one.
+normalize_class = projection.klass
 
-def normalize_class(raw: Any) -> dict[str, Any]:
-    """Map one wire-format class record to readable keys."""
-    if not isinstance(raw, dict):
-        raise SchemaDrift(
-            f"Expected a class object, got {type(raw).__name__}. "
-            "The API shape may have changed."
+
+def raw_classes(client: PlanbookClient) -> JsonValue:
+    """The undecoded `/getClasses2` body. Backs `classes list --raw`."""
+    return client.post("/getClasses2")
+
+
+def list_classes(client: PlanbookClient) -> ClassList:
+    """Classes with their weekly schedule."""
+    checked = client.require(
+        raw_classes(client), "classes", "currentYearId", where="getClasses2"
+    )
+    return ClassList(
+        current_year_id=checked["currentYearId"],
+        classes=[
+            normalize_class(c)
+            for c in records(checked["classes"], where="getClasses2.classes")
+        ],
+        lesson_banks=checked.get("lessonBanks"),
+        district_lesson_banks=checked.get("districtLessonBanks"),
+    )
+
+
+def require_taught(times: dict[str, tuple[str, str]] | None, days: list[str]) -> None:
+    """Refuse a time for a day the class will not teach.
+
+    Planbook blanks that slot, so the write would report success having stored
+    nothing. The caller almost certainly forgot to name the day.
+    """
+    untaught = sorted(day for day in times or {} if day not in days)
+    if untaught:
+        raise UsageError(
+            f"--time names {', '.join(untaught)}, which this class does not "
+            "teach, so Planbook would discard it.",
+            remedy="Pass --days including that day, or drop the --time.",
         )
-    schedule = {}
-    for day, prefix in DAY_PREFIXES.items():
-        # "Y"/"N" strings: a raw "N" is truthy in Python and would read as
-        # "teaches on Sunday".
-        schedule[day] = {
-            "teaches": str(raw.get(f"{prefix}T", "")).upper() == "Y",
-            "start": raw.get(f"{prefix}St"),
-            "end": raw.get(f"{prefix}Et"),
-        }
-    return {
-        "id": raw.get("cId"),
-        "name": raw.get("cN"),
-        "start_date": raw.get("cSd"),
-        "end_date": raw.get("cEd"),
-        "color": raw.get("cC"),
-        "year_id": raw.get("cYId"),
-        "description": raw.get("classDesc"),
-        "lesson_layout_id": raw.get("lessonLayoutId"),
-        "teacher_id": raw.get("teacherId"),
-        "district_id": raw.get("districtId"),
-        "units": raw.get("units"),
-        "schedule": schedule,
-    }
-
-
-def list_classes(client: PlanbookClient, *, raw: bool = False) -> dict[str, Any]:
-    body = client.post("/getClasses2")
-    client.require(body, "classes", "currentYearId", where="getClasses2")
-    if raw:
-        return cast(dict[str, Any], body)
-    records = body.get("classes") or []
-    if not isinstance(records, list):
-        raise SchemaDrift("getClasses2 returned a non-list `classes`.")
-    return {
-        "current_year_id": body.get("currentYearId"),
-        "classes": [normalize_class(c) for c in records],
-        "lesson_banks": body.get("lessonBanks"),
-        "district_lesson_banks": body.get("districtLessonBanks"),
-    }
 
 
 def class_payload(
@@ -74,14 +84,14 @@ def class_payload(
     color: str = "#7ED321",
     description: str = "",
     times: dict[str, tuple[str, str]] | None = None,
-    lesson_layout_id: Any = 0,
-) -> dict[str, str]:
+    lesson_layout_id: Id = 0,
+) -> FormPayload:
     """Shared body for creating and updating a class.
 
-    Booleans here are "Y"/"N". "true"/"false" is accepted without complaint
-    and silently produces a class that teaches on no days at all.
+    Booleans here are "Y"/"N". "true"/"false" is accepted and silently produces
+    a class that teaches on no days at all.
     """
-    payload: dict[str, str] = {
+    payload: FormPayload = {
         "className": name,
         "classStartDate": start_date,
         "classEndDate": end_date,
@@ -110,8 +120,7 @@ def class_payload(
         "collaborateKey": "",
         "lessonLayoutId": intish(lesson_layout_id),
         "schedules": build_schedule(days, start_date, times),
-        # "true" validates and commits nothing. Same trap as events.
-        "verifyShift": "false",
+        "verifyShift": "false",  # "true" would validate and commit nothing
     }
     for day in DAY_ORDER:
         payload[f"{day}Teach"] = yn(day in days)
@@ -119,7 +128,7 @@ def class_payload(
 
 
 def create_class(
-    client: PlanbookClient,
+    client: PlanbookClient | None,
     *,
     name: str,
     start_date: str,
@@ -128,8 +137,10 @@ def create_class(
     color: str = "#7ED321",
     description: str = "",
     times: dict[str, tuple[str, str]] | None = None,
-    lesson_layout_id: Any = 0,
-) -> dict[str, Any]:
+    lesson_layout_id: Id = 0,
+    dry_run: bool = False,
+) -> Result:
+    require_taught(times, days)
     payload = class_payload(
         name=name,
         start_date=start_date,
@@ -140,44 +151,47 @@ def create_class(
         times=times,
         lesson_layout_id=lesson_layout_id,
     )
+    mutation = Mutation(
+        resource="class",
+        operation="create",
+        requests=[Request("/addClass", payload)],
+    )
+    if dry_run:
+        return preview(mutation)
+    assert client is not None  # only the dry_run branch runs without one
 
-    # /addClass does not report the id it created, and matching by name
-    # afterwards breaks the moment two classes share a name. Diff the ids
-    # instead.
-    def class_records() -> list[dict[str, Any]]:
+    # /addClass does not report the id it created, and two classes can share a
+    # name, so diff the ids and narrow by what was written.
+    def class_records() -> list[JsonObject]:
         body = client.require(
             client.post("/getClasses2"), "classes", where="getClasses2"
         )
-        records = body.get("classes") or []
-        return [c for c in records if isinstance(c, dict)]
+        return records(body["classes"], where="getClasses2.classes")
 
     before = {str(c.get("cId")) for c in class_records()}
-    client.post("/addClass", payload)
-    created = [c for c in class_records() if str(c.get("cId")) not in before]
-    if not created:
-        # No new class appeared, so /addClass silently did nothing. Reporting
-        # ok here would be the success-that-destroys-nothing-but-created-nothing
-        # trap the API sets everywhere.
-        raise ApiError(
-            "Creating the class did not take: no new class appeared. "
-            "The server accepts /addClass with HTTP 200 even when it stores nothing."
-        )
-    result: dict[str, Any] = {"ok": True, "name": name, "days": days}
-    if len(created) == 1:
-        result["class_id"] = created[0].get("cId")
-    else:
-        result["class_id"] = None
-        result["note"] = (
-            f"{len(created)} classes appeared at once, so the new id is "
-            "ambiguous. Run `planbook classes list`."
-        )
-    return result
+    result = commit(client, mutation)
+    class_id = resolve_created(
+        resource="class",
+        before=before,
+        after=class_records(),
+        id_of=lambda c: c.get("cId"),
+        matches=lambda c: (
+            str(c.get("cN")) == str(name) and str(c.get("cSd")) == str(start_date)
+        ),
+        list_command="planbook classes list",
+    )
+    return {
+        **result,
+        "name": name,
+        "days": json_list(days),
+        "id": class_id,
+    }
 
 
 def update_class(
     client: PlanbookClient,
     *,
-    class_id: Any,
+    class_id: Id,
     name: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -186,70 +200,63 @@ def update_class(
     description: str | None = None,
     times: dict[str, tuple[str, str]] | None = None,
     dry_run: bool = False,
-) -> dict[str, Any]:
+) -> Result:
     """Update a class, changing only what you pass.
 
-    Reads the class first and edits that. The endpoint replaces the whole
-    record, so a payload built from defaults would wipe the description,
-    colour, lesson layout and per-day times of anything it did not restate.
-
-    `/updateClass/v10` is the versioned path the app calls; plain
-    `/updateClass` also answers. `scheduleChange=true` is required or the
-    new schedule is discarded while the rest of the update succeeds.
+    The endpoint replaces the whole record, so this reads the class first and
+    edits that. `scheduleChange=true` is required or the new schedule is
+    discarded while the rest of the update succeeds.
     """
-    current = get_class(client, class_id)
-    if not isinstance(current, dict) or "className" not in current:
+    current = as_object(get_class(client, class_id), where=f"getClass({class_id})")
+    if "className" not in current:
         raise SchemaDrift(
             f"getClass({class_id}) did not return a class record. "
             "Cannot update without reading the current values first."
         )
-    schedule_rows = current.get("classSchedule")
-    if not isinstance(schedule_rows, list) or not schedule_rows:
+    schedule_rows = records(
+        current.get("classSchedule") or [], where="getClass.classSchedule"
+    )
+    if not schedule_rows:
         raise SchemaDrift(
             f"getClass({class_id}) returned no classSchedule. Updating without "
             "it would erase the class's teaching days."
         )
 
-    def flag(value: Any) -> str:
-        if isinstance(value, bool):
-            return yn(value)
-        return yn(str(value).upper() == "Y")
-
-    # The schedule rows are authoritative for which days are taught; the
-    # scalar <day>Teach fields are a flattened view of the latest row.
+    # The schedule rows are authoritative for teaching days; the scalar
+    # <day>Teach fields are a flattened view of the latest row.
     latest = schedule_rows[-1]
     current_days = [
         day
         for n, day in enumerate(SCHEDULE_DAY_ORDER, start=1)
-        if latest.get(f"day{n}Teach")
+        if flag(latest.get(f"day{n}Teach"))
     ]
     new_days = days if days is not None else current_days
-    start = start_date or current.get("classStartDate") or ""
+    start = start_date or string(current, "classStartDate")
 
-    payload: dict[str, str] = {
+    payload: FormPayload = {
         "classId": intish(class_id),
-        "className": name if name is not None else current.get("className", ""),
+        "className": name if name is not None else string(current, "className"),
         "classStartDate": start,
-        "classEndDate": end_date or current.get("classEndDate") or "",
-        "color": color if color is not None else current.get("color") or "#7ED321",
+        "classEndDate": end_date or string(current, "classEndDate"),
+        "color": color if color is not None else string(current, "color", "#7ED321"),
         "classDesc": (
-            description if description is not None else current.get("classDesc") or ""
+            description if description is not None else string(current, "classDesc")
         ),
-        "titleColor": current.get("titleColor") or "#000000",
-        "titleSize": str(current.get("titleSize") or "12"),
-        "titleFont": current.get("titleFont") or "Arial",
-        "classLabelBold": flag(current.get("classLabelBold")),
-        "classLabelItalic": flag(current.get("classLabelItalic")),
-        "classLabelUnderline": flag(current.get("classLabelUnderline")),
-        "noStudents": flag(current.get("noStudents")),
-        "useSchoolStart": flag(current.get("useSchoolStart")),
-        "useSchoolEnd": flag(current.get("useSchoolEnd")),
+        "titleColor": string(current, "titleColor", "#000000"),
+        "titleSize": string(current, "titleSize", "12"),
+        "titleFont": string(current, "titleFont", "Arial"),
+        "classLabelBold": yn(flag(current.get("classLabelBold"))),
+        "classLabelItalic": yn(flag(current.get("classLabelItalic"))),
+        "classLabelUnderline": yn(flag(current.get("classLabelUnderline"))),
+        "noStudents": yn(flag(current.get("noStudents"))),
+        "useSchoolStart": yn(flag(current.get("useSchoolStart"))),
+        "useSchoolEnd": yn(flag(current.get("useSchoolEnd"))),
         "lessonLayoutId": intish(current.get("lessonLayoutId")),
-        "source": current.get("source") or "",
+        "source": string(current, "source"),
         "sourceId": intish(current.get("sourceId")),
         "collaborateType": intish(current.get("collaborateType")),
         "collaborateSubjectId": intish(current.get("collaborateSubjectId")),
-        "collaborateKey": current.get("collaborateKey") or "",
+        "collaborateKey": string(current, "collaborateKey"),
         "sourceSettings[connectStudents]": "true",
         "sourceSettings[connectAssignments]": "true",
         "sourceSettings[connectGrades]": "true",
@@ -263,28 +270,163 @@ def update_class(
     for day in DAY_ORDER:
         payload[f"{day}Teach"] = yn(day in new_days)
 
+    # Keyed by the field `getClass` answers with, so the read-back checks
+    # exactly what this call changed.
+    require_taught(times, new_days)
+    named = {
+        public: (field, str(payload.get(field, "")))
+        for public, field, value in (
+            ("name", "className", name),
+            ("start_date", "classStartDate", start_date),
+            ("end_date", "classEndDate", end_date),
+            ("color", "color", color),
+            ("description", "classDesc", description),
+        )
+        if value is not None
+    }
+    mutation = Mutation(
+        resource="class",
+        operation="update",
+        requests=[Request("/updateClass/v10", payload)],
+        before=normalize_class_record(current, class_id),
+        named=named,
+        # The schedule comes back as `classSchedule`, a list of rotation rows,
+        # so it is checked by predicate rather than by flat comparison.
+        checks=_schedule_checks(new_days if days is not None else None, times),
+    )
     if dry_run:
-        # The read above already happened; only the write is skipped. Showing
-        # the real payload is the point, and it cannot be built without it.
-        return {
-            "dry_run": True,
-            "endpoint": "/updateClass/v10",
-            "payload": payload,
-        }
-    client.post("/updateClass/v10", payload)
+        return preview(mutation)
+
+    result = commit(
+        client,
+        mutation,
+        read=lambda: as_object(get_class(client, class_id), where="getClass"),
+    )
     return {
-        "ok": True,
-        "class_id": payload["classId"],
-        "name": payload["className"],
-        "days": new_days,
+        **result,
+        "id": str(payload["classId"]),
+        "name": str(payload["className"]),
+        "days": json_list(new_days),
     }
 
 
-def get_class(client: PlanbookClient, class_id: Any) -> Any:
+def _schedule_checks(
+    days: list[str] | None, times: dict[str, tuple[str, str]] | None
+) -> dict[str, Callable[[JsonRecord], bool]]:
+    """Predicates proving a schedule change took.
+
+    `scheduleChange=true` is easy to lose: the rest of the update lands and the
+    new teaching days are quietly discarded.
+    """
+    checks: dict[str, Callable[[JsonRecord], bool]] = {}
+    if days is not None:
+        # Compared as sets: `--days WM` is the same schedule as `--days MW`.
+        checks["days"] = lambda record: set(_taught(record)) == set(days)
+    if times:
+        checks["times"] = lambda record: all(
+            _slot(record, day) == window for day, window in times.items()
+        )
+    return checks
+
+
+def _latest_row(record: JsonRecord) -> JsonObject | None:
+    """The current schedule row. Earlier rows are a mid-year change's history."""
+    schedule = record.get("classSchedule")
+    if not isinstance(schedule, list):
+        return None
+    rows = records(schedule, where="getClass.classSchedule")
+    return rows[-1] if rows else None
+
+
+def _taught(record: JsonRecord) -> list[str]:
+    """The weekdays the saved schedule teaches on."""
+    row = _latest_row(record)
+    if row is None:
+        return []
+    return [
+        day
+        for n, day in enumerate(SCHEDULE_DAY_ORDER, start=1)
+        if flag(row.get(f"day{n}Teach"))
+    ]
+
+
+def _slot(record: JsonRecord, day: str) -> tuple[str, str]:
+    """The saved start and end time for one weekday."""
+    row = _latest_row(record)
+    if row is None or day not in SCHEDULE_DAY_ORDER:
+        return ("", "")
+    n = SCHEDULE_DAY_ORDER.index(day) + 1
+    return (
+        str(row.get(f"day{n}StartTime") or ""),
+        str(row.get(f"day{n}EndTime") or ""),
+    )
+
+
+def normalize_class_record(current: JsonObject, class_id: Id) -> Result:
+    """`getClass` speaks readable keys already; project the few that matter."""
+    return {
+        "id": intish(class_id),
+        "name": current.get("className"),
+        "start_date": current.get("classStartDate"),
+        "end_date": current.get("classEndDate"),
+        "color": current.get("color"),
+        "description": current.get("classDesc"),
+    }
+
+
+def get_class(client: PlanbookClient, class_id: Id) -> JsonValue:
     return client.post("/getClass", {"classId": intish(class_id)})
 
 
-def delete_class(client: PlanbookClient, *, class_id: Any) -> dict[str, Any]:
+def delete_class(
+    client: PlanbookClient,
+    *,
+    class_id: Id,
+    dry_run: bool = False,
+    confirmed: bool = False,
+) -> Result:
     """Delete a class and every lesson in it. There is no undo."""
-    client.post("/deleteClass", {"classId": intish(class_id)})
-    return {"ok": True, "deleted_class_id": intish(class_id)}
+    from .lessons import lessons_between
+
+    current = as_object(get_class(client, class_id), where=f"getClass({class_id})")
+    if "className" not in current:
+        raise SchemaDrift(
+            f"getClass({class_id}) did not return a class record. Refusing to "
+            "delete a class this tool cannot describe."
+        )
+    # A class always takes its lessons with it, so `--yes` is always required.
+    # Counting them costs a request, so only count for a preview or a refusal.
+    cascade: Result = {"lessons": "every lesson in this class"}
+    if dry_run or not confirmed:
+        cascade = {
+            "lessons": sum(
+                str(lesson.get("class_id")) == str(intish(class_id))
+                for lesson in lessons_between(
+                    client,
+                    start=string(current, "classStartDate"),
+                    end=string(current, "classEndDate"),
+                )
+            )
+        }
+    mutation = Mutation(
+        resource="class",
+        operation="delete",
+        requests=[Request("/deleteClass", {"classId": intish(class_id)})],
+        before=normalize_class_record(current, class_id),
+        cascade=cascade,
+    )
+    if dry_run:
+        return preview(mutation)
+    require_intent(mutation, confirmed=confirmed)
+    return commit(
+        client,
+        mutation,
+        verify=lambda: _class_or_none(client, class_id),
+        result={"deleted_class_id": intish(class_id)},
+    )
+
+
+def _class_or_none(client: PlanbookClient, class_id: Id) -> JsonObject | None:
+    """The class, or None once it is gone."""
+    record = get_class(client, class_id)
+    return record if isinstance(record, dict) and record.get("className") else None

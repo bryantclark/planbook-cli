@@ -47,7 +47,7 @@ def test_import_skips_a_browser_token_the_api_rejects(monkeypatch):
     def rejected(_client):
         raise ApiError("date must not be null")
 
-    monkeypatch.setattr(cmd.api, "list_classes", rejected)
+    monkeypatch.setattr(cmd, "list_classes", rejected)
     monkeypatch.setattr(cmd, "PlanbookClient", lambda *a, **k: object())
 
     args = argparse.Namespace(browser="brave", verbose=False)

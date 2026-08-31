@@ -21,14 +21,29 @@ build-backend = "hatchling.build"
 packages = ["src/planbook"]
 
 
+[tool.pytest.ini_options]
+# Test the checked-out source, not whichever planbook is pip installed - an
+# editable install from another worktree otherwise wins the import.
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
 [tool.ruff]
 line-length = 88
 target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ARG", "C4", "PTH", "RET"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ARG", "C4", "PTH", "RET",
+          "ANN401", "TID251"]
 ignore = ["E501"]          # line length is formatted, not linted
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# ANN401 only catches a bare `Any` annotation; this catches the import, and so
+# also `list[Any]`, `cast(dict[str, Any], ...)` and friends. `object` is the
+# top type and forces a narrow; `JsonValue` is the parsed-JSON boundary.
+# See .ai/code-style.md.
+"typing.Any".msg = "No Any. Use object, JsonValue, or a TypedDict from types.py."
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG"]        # fixtures are arguments the test never names

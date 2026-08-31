@@ -1,8 +1,4 @@
-"""Find the user's default browser, so sign-in opens the browser they use.
-
-Only Chromium-family browsers can be driven. If the default is Firefox or
-Safari we say so and fall back, rather than silently opening something else.
-"""
+"""Name the user's default browser (macOS only)."""
 
 from __future__ import annotations
 
@@ -10,48 +6,24 @@ import plistlib
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
-# Bundle identifier -> (display name, path to the executable inside the bundle)
-CHROMIUM_BROWSERS = {
-    "com.brave.browser": (
-        "Brave",
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    ),
-    "com.brave.browser.beta": (
-        "Brave Beta",
-        "/Applications/Brave Browser Beta.app/Contents/MacOS/Brave Browser Beta",
-    ),
-    "com.google.chrome": (
-        "Chrome",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    ),
-    "com.google.chrome.canary": (
-        "Chrome Canary",
-        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-    ),
-    "com.microsoft.edgemac": (
-        "Edge",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ),
-    "com.vivaldi.vivaldi": (
-        "Vivaldi",
-        "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi",
-    ),
-    "com.operasoftware.opera": (
-        "Opera",
-        "/Applications/Opera.app/Contents/MacOS/Opera",
-    ),
-    "company.thebrowser.browser": ("Arc", "/Applications/Arc.app/Contents/MacOS/Arc"),
-    "com.thebrowser.dia": ("Dia", "/Applications/Dia.app/Contents/MacOS/Dia"),
-}
-
-# Defaults we recognise but cannot drive.
-NON_CHROMIUM = {
+# Bundle identifier -> display name. The first word is matched against
+# browser_cookies.KNOWN_BROWSERS, so "Brave Beta" resolves to "brave".
+BROWSER_NAMES = {
+    "com.brave.browser": "Brave",
+    "com.brave.browser.beta": "Brave Beta",
+    "com.google.chrome": "Chrome",
+    "com.google.chrome.canary": "Chrome Canary",
+    "com.microsoft.edgemac": "Edge",
+    "com.vivaldi.vivaldi": "Vivaldi",
+    "com.operasoftware.opera": "Opera",
+    "company.thebrowser.browser": "Arc",
+    "com.thebrowser.dia": "Dia",
     "org.mozilla.firefox": "Firefox",
-    "com.apple.safari": "Safari",
     "org.mozilla.librewolf": "LibreWolf",
     "app.zen-browser.zen": "Zen",
+    "com.apple.safari": "Safari",
 }
 
 _PLIST = (
@@ -67,7 +39,7 @@ def default_browser_bundle_id() -> str | None:
     path = Path(_PLIST).expanduser()
     try:
         with path.open("rb") as fh:
-            data = cast(dict[str, Any], plistlib.load(fh))
+            data = cast("dict[str, object]", plistlib.load(fh))
     except Exception:
         # Falls back to `defaults`, which sometimes reads when plistlib cannot.
         try:
@@ -92,7 +64,10 @@ def default_browser_bundle_id() -> str | None:
             return None
         return chunk[1].split('"')[1].lower() if '"' in chunk[1] else None
 
-    for handler in data.get("LSHandlers", []):
+    handlers = data.get("LSHandlers")
+    for handler in handlers if isinstance(handlers, list) else []:
+        if not isinstance(handler, dict):
+            continue
         if handler.get("LSHandlerURLScheme") == "https":
             bundle = handler.get("LSHandlerRoleAll") or handler.get(
                 "LSHandlerRoleViewer"
@@ -102,28 +77,8 @@ def default_browser_bundle_id() -> str | None:
     return None
 
 
-def default_chromium_executable() -> tuple[str, str] | None:
-    """(name, executable_path) for the default browser, or None if it is not
-    Chromium-based, not installed where expected, or undeterminable."""
-    bundle = default_browser_bundle_id()
-    if not bundle:
-        return None
-    if bundle in NON_CHROMIUM:
-        return None
-    entry = CHROMIUM_BROWSERS.get(bundle)
-    if not entry:
-        return None
-    name, executable = entry
-    return (name, executable) if Path(executable).exists() else None
-
-
 def default_browser_name() -> str | None:
-    """Human-readable name of the default browser, driveable or not."""
     bundle = default_browser_bundle_id()
     if not bundle:
         return None
-    if bundle in NON_CHROMIUM:
-        return NON_CHROMIUM[bundle]
-    if bundle in CHROMIUM_BROWSERS:
-        return CHROMIUM_BROWSERS[bundle][0]
-    return bundle
+    return BROWSER_NAMES.get(bundle, bundle)

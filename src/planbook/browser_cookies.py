@@ -1,11 +1,7 @@
-"""Read the access token out of a browser you are already signed in to.
+"""Read the access token from a browser cookie store.
 
-The recommended path: no browser is driven and nothing is impersonated, so
-identity providers never see automation. It only reads a cookie store the
-user already owns.
-
-On macOS that store is behind the Keychain; the first-run prompt is the
-consent boundary, and "Always Allow" makes later runs silent.
+On macOS the store is behind the Keychain; "Always Allow" makes later
+runs silent.
 """
 
 from __future__ import annotations
@@ -13,7 +9,7 @@ from __future__ import annotations
 import contextlib
 import signal
 from collections.abc import Iterator
-from typing import Any
+from types import ModuleType
 
 from .errors import LoginFailed
 
@@ -23,7 +19,7 @@ KNOWN_BROWSERS = ("brave", "chrome", "edge", "vivaldi", "opera", "firefox", "saf
 TOKEN_SUFFIX = ".accesstoken"
 
 
-def _import_bc() -> Any:
+def _import_bc() -> ModuleType:
     try:
         import browser_cookie3
     except ImportError as exc:
@@ -31,7 +27,8 @@ def _import_bc() -> Any:
             "Reading browser cookies needs browser-cookie3, which ships "
             "as a dependency of this package. Reinstall planbook-cli."
         ) from exc
-    return browser_cookie3
+    module: ModuleType = browser_cookie3
+    return module
 
 
 class CookieTimeout(Exception):
@@ -40,12 +37,7 @@ class CookieTimeout(Exception):
 
 @contextlib.contextmanager
 def _time_limit(seconds: int) -> Iterator[None]:
-    """Bound a blocking read.
-
-    macOS gates the cookie store behind the Keychain, and an unanswered
-    prompt blocks forever. Without this the command simply hangs with no
-    output and no explanation.
-    """
+    """Bound a blocking read: an unanswered macOS Keychain prompt never returns."""
     if not hasattr(signal, "SIGALRM"):  # pragma: no cover - non-POSIX
         yield
         return
@@ -76,8 +68,7 @@ def tokens_from(browser: str, *, timeout: int = 10) -> list[str]:
 def search(preferred: str | None = None) -> Iterator[tuple[str, str]]:
     """Yield (browser, token) for every Planbook token found locally.
 
-    Missing or locked browsers are skipped, not raised: one locked store
-    should not stop the search.
+    Missing or locked browsers are skipped, not raised.
     """
     order = list(KNOWN_BROWSERS)
     if preferred:
@@ -91,11 +82,10 @@ def search(preferred: str | None = None) -> Iterator[tuple[str, str]]:
 
 
 def any_store_readable() -> bool:
-    """True if at least one browser's cookie store can be read at all.
+    """True if at least one browser's cookie store answers, token or not.
 
-    A store that answers - even with no Planbook token - is readable. Safari on
-    macOS is not, without Full Disk Access, so a Safari-only machine returns
-    False and the caller can say so instead of polling a store it can never read.
+    Safari on macOS does not, without Full Disk Access, so a Safari-only machine
+    returns False and the caller can say so instead of polling forever.
     """
     bad = ("unreadable", "locked", "not installed", "timed out")
     for status in diagnose().values():

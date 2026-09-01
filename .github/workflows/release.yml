@@ -2,6 +2,9 @@ name: Release
 on:
   push:
     branches: [main]
+  # Recovery path: publish the version currently on main when a release was
+  # tagged but its publish job failed.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,7 +31,9 @@ jobs:
     # trigger a separate `on: release` workflow, so publishing has to happen in
     # the same run that created the release.
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: >-
+      needs.release-please.outputs.release_created == 'true'
+      || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

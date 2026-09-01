@@ -23,9 +23,10 @@ stays offline, and it never writes. Add a case there when you map a reader;
 keep writes out of it.
 
 `tests/live/test_html_roundtrip.py` measures what Planbook does to text it
-stores. It writes, so it needs `PLANBOOK_LIVE_WRITE=1` plus a class id and a
-date, refuses a date that already holds a lesson, and deletes what it made.
-Run it against a throwaway class, never a real one.
+stores. It writes, so it needs `PLANBOOK_LIVE_WRITE=1`. It touches nothing that
+was already there: it creates its own class, writes in that, and deletes the
+class at the end. A write test added here does the same — never write into a
+class the account already had.
 
 ## What to test
 

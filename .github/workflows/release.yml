@@ -15,7 +15,7 @@ jobs:
     steps:
       # Maintains a release PR that bumps the version and CHANGELOG from the
       # commits since the last release. Merging that PR tags the release.
-      # Uses the built-in GITHUB_TOKEN - no secrets, free on public repos.
+      # Uses the built-in GITHUB_TOKEN - no secrets needed.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -32,6 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
+      contents: read   # a job block replaces the workflow default; checkout
+                       # needs this to clone once the repo is private
       id-token: write  # trusted publishing (OIDC) - no API token/secret needed
     steps:
       - uses: actions/checkout@v4

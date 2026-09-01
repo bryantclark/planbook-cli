@@ -2,8 +2,14 @@ import pytest
 import requests
 import responses
 
-from planbook.client import API_BASE, PlanbookClient
-from planbook.errors import ApiError, NotAuthenticated, SchemaDrift
+from planbook.client import API_BASE, PlanbookClient, retry_after
+from planbook.errors import (
+    ApiError,
+    Forbidden,
+    NotAuthenticated,
+    RateLimited,
+    SchemaDrift,
+)
 from planbook.wire import intish, yn
 
 
@@ -47,6 +53,46 @@ def test_check_maps_waf_405_to_schema_drift():
             response(405, "AWSWAF human verification"),
             "https://api.planbook.com/getClasses2",
         )
+
+
+def test_check_maps_waf_403_to_schema_drift():
+    with pytest.raises(SchemaDrift, match="AWS WAF"):
+        client()._check(
+            response(403, "AWSWAF human verification"),
+            "https://api.planbook.com/getClasses2",
+        )
+
+
+def test_check_maps_401_to_not_authenticated():
+    with pytest.raises(NotAuthenticated, match="401"):
+        client()._check(response(401, ""), "https://api.planbook.com/getClasses2")
+
+
+def test_check_maps_403_to_forbidden():
+    with pytest.raises(Forbidden, match="403"):
+        client()._check(response(403, "no"), "https://api.planbook.com/getClasses2")
+
+
+def test_check_maps_429_to_rate_limited_carrying_retry_after():
+    resp = response(429, "slow down")
+    resp.headers["Retry-After"] = "12"
+    with pytest.raises(RateLimited) as exc:
+        client()._check(resp, "https://api.planbook.com/getClasses2")
+    assert exc.value.retryable is True
+    assert exc.value.details["retry_after"] == 12
+
+
+def test_rate_limit_without_a_retry_after_says_so():
+    with pytest.raises(RateLimited) as exc:
+        client()._check(response(429, ""), "https://api.planbook.com/getClasses2")
+    assert exc.value.details["retry_after"] is None
+
+
+def test_retry_after_reads_seconds_and_http_dates():
+    assert retry_after("30") == 30
+    assert retry_after("Wed, 21 Oct 2015 07:28:00 GMT") == 0
+    assert retry_after(None) is None
+    assert retry_after("whenever") is None
 
 
 def test_check_returns_normal_dict_unchanged():

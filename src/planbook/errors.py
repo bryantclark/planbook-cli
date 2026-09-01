@@ -92,6 +92,29 @@ class ApiError(PlanbookError):
     remedy = "Read the message. Check the ids you passed against a `list` call."
 
 
+class Forbidden(PlanbookError):
+    """HTTP 403. The token is valid but the account may not do this."""
+
+    exit_code = 1
+    kind = "Forbidden"
+    remedy = (
+        "The session is real but not allowed here. Do not retry: check the ids "
+        "belong to this account, and that the plan covers the feature."
+    )
+
+
+class RateLimited(PlanbookError):
+    """HTTP 429. Planbook is asking for a pause, and says how long for."""
+
+    exit_code = 1
+    kind = "RateLimited"
+    retryable = True
+    remedy = (
+        "Wait `details.retry_after` seconds - the server named it - then send "
+        "the same request once. Do not retry in a loop."
+    )
+
+
 class TransportError(PlanbookError):
     """The request never got a usable answer: DNS, TLS, timeout, 5xx."""
 
@@ -154,6 +177,8 @@ ERROR_KINDS: tuple[type[PlanbookError], ...] = (
     SchemaDrift,
     NotAuthenticated,
     LoginFailed,
+    Forbidden,
+    RateLimited,
     Ambiguous,
     PostconditionFailed,
 )

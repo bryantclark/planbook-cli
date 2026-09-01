@@ -16,9 +16,12 @@ See docs/API-NOTES.md for the full field conventions.
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 import sys
 import time
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -27,7 +30,9 @@ from . import __version__
 from .errors import (
     SIGN_IN_HELP,
     ApiError,
+    Forbidden,
     NotAuthenticated,
+    RateLimited,
     SchemaDrift,
     TransportError,
 )
@@ -126,10 +131,27 @@ class PlanbookClient:
         return self._check(resp, url)
 
     def _check(self, resp: requests.Response, url: str) -> JsonValue:
-        if resp.status_code == 405 and "awswaf" in resp.text.lower():
+        if resp.status_code in (403, 405) and "awswaf" in resp.text.lower():
             raise SchemaDrift(
                 f"{url} answered with an AWS WAF challenge. Planbook has "
                 "changed its edge configuration; this tool cannot proceed."
+            )
+        if resp.status_code == 401:
+            raise NotAuthenticated(
+                f"{url} rejected the token (HTTP 401)." + SIGN_IN_HELP
+            )
+        if resp.status_code == 403:
+            raise Forbidden(f"{url} refused this account (HTTP 403).")
+        if resp.status_code == 429:
+            wait = retry_after(resp.headers.get("Retry-After"))
+            raise RateLimited(
+                f"{url} is rate limiting this account (HTTP 429). "
+                + (
+                    f"It asks for {wait}s."
+                    if wait is not None
+                    else "It did not say for how long."
+                ),
+                details={"endpoint": url, "retry_after": wait},
             )
         if resp.status_code >= 500:
             # Transient, so retryable - unlike an error reported in a 200 body.
@@ -171,3 +193,19 @@ class PlanbookClient:
                 "The API shape may have changed."
             )
         return body
+
+
+def retry_after(header: str | None) -> int | None:
+    """`Retry-After` as whole seconds. It is either a count or an HTTP date."""
+    if not header:
+        return None
+    value = header.strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, math.ceil(when.timestamp() - time.time()))

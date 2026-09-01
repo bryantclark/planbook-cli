@@ -16,10 +16,15 @@ Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
 field the test is about as an override, so the odd value stays visible in the
 test rather than buried in a default.
 
-The one exception is `tests/test_contract_live.py`, which reads the real
+Two modules are exceptions. `tests/test_contract_live.py` reads the real
 account to check the projections still match the API. It skips unless
 `PLANBOOK_LIVE=1`, so the default run stays offline, and it never writes. Add a
 case there when you map a reader; keep writes out of it.
+
+`tests/test_html_roundtrip_live.py` measures what Planbook does to text it
+stores. It writes, so it needs `PLANBOOK_LIVE_WRITE=1` plus a class id and a
+date, refuses a date that already holds a lesson, and deletes what it made.
+Run it against a throwaway class, never a real one.
 
 ## What to test
 

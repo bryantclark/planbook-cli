@@ -23,7 +23,9 @@ A write is now a `Mutation`, and `mutations.py` owns what happens to it:
   `PostconditionFailed`.
 - `require_intent()` applies one destructive-action policy: `--yes` is required
   when a delete destroys records the caller did not name, and the `cascade`
-  count is reported by `--dry-run` either way.
+  count is reported by `--dry-run` either way. A write that sets
+  `assume_destructive` needs it too — `raw` reaches every endpoint, the
+  deleting ones included, and no code here can tell which one a path is.
 - `resolve_created()` recovers the id of a created record by diffing the list
   and narrowing by the fields just written, so a create returns a real `id`
   instead of `null` with instructions to go and look.

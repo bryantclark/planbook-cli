@@ -54,7 +54,8 @@ planbook --error-json <cmd>     # failures as {"error": {kind, code, retryable, 
 - Every list answers to `id`; `--raw` returns the untouched wire body.
 - Every write has `--dry-run`, and is read back before it reports success.
 - Deletes that destroy records you did not name require `--yes` and report a
-  `cascade` count.
+  `cascade` count. So does `raw` on anything but `--get`, since an unmapped
+  POST can reach a deleting endpoint.
 - `lessons bulk --journal FILE` makes an interrupted batch resumable with
   `--resume`.
 

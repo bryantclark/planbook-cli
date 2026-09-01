@@ -20,7 +20,8 @@ planbook lessons bulk week.json --class-id N [--dry-run] [--journal r.jsonl --re
 - `-` on a text flag reads that value from stdin. Use it for HTML.
 - Every list answers to `id`. Every `create` returns `id`, never `null`.
 - `--dry-run` prints the exact requests. Deletes that destroy records you did
-  not name also need `--yes`; the preview reports the `cascade` count.
+  not name also need `--yes`; the preview reports the `cascade` count. So does
+  every `raw` request but `--get`: nothing can tell what an unmapped POST does.
 
 Full reference: `AGENTS.md` and `API-NOTES.md` beside this file, if they were
 installed with it; otherwise github.com/bryantclark/planbook-cli.

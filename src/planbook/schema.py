@@ -140,7 +140,9 @@ def manifest(parser: argparse.ArgumentParser) -> Result:
             "stdin": "`-` on a text flag reads that value from stdin",
             "destructive_policy": (
                 "--yes is required when a delete also destroys records you did "
-                "not name; --dry-run reports the full blast radius first"
+                "not name, and on every `raw` request but --get, whose target "
+                "this tool cannot read; --dry-run reports the full blast "
+                "radius first"
             ),
         },
         "commands": _commands(parser, []),

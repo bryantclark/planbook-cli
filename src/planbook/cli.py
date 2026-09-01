@@ -62,11 +62,12 @@ def _dry_run(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _yes(parser: argparse.ArgumentParser) -> None:
+def _yes(parser: argparse.ArgumentParser, help_text: str | None = None) -> None:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="confirm a delete that also destroys records you did not name",
+        help=help_text
+        or "confirm a delete that also destroys records you did not name",
     )
 
 
@@ -714,7 +715,12 @@ def build_parser() -> argparse.ArgumentParser:
         "encoding with \"A JSONObject text must begin with '{'\"",
     )
     _dry_run(p)
-    p.set_defaults(func=cmd_raw)
+    _yes(
+        p,
+        "confirm a write whose blast radius this tool cannot read; required "
+        "for every request except --get",
+    )
+    p.set_defaults(func=cmd_raw, _destructive_when="anything but --get")
 
     return parser
 

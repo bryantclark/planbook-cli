@@ -147,3 +147,15 @@ def test_a_command_keeps_every_mark_it_declares(capsys, isolated_config):
     assert delete["writes"] and delete["destructive"] and delete["dry_run"]
     upload = next(c for c in body["commands"] if c["command"] == "attachments upload")
     assert upload["writes"] and upload["dry_run"] and not upload["destructive"]
+
+
+def test_schema_publishes_raw_as_a_destructive_command_taking_yes(
+    capsys, isolated_config
+):
+    cli.main(["schema"])
+    body, _ = parse_stdout(capsys)
+    raw = next(c for c in body["commands"] if c["command"] == "raw")
+    assert raw["destructive"] is True
+    assert raw["destructive_when"] == "anything but --get"
+    assert "--yes" in {a["name"] for a in raw["arguments"]}
+    assert "raw" in body["conventions"]["destructive_policy"]

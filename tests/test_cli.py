@@ -6,7 +6,7 @@ import responses
 
 from conftest import DATE, event_list, lesson_days, saved_lesson, stub
 from planbook import cli
-from planbook.client import PlanbookClient
+from planbook.client import API_BASE, PlanbookClient
 from planbook.resources.events import new_event_payload
 from planbook.resources.lessons import set_lesson
 
@@ -252,8 +252,32 @@ def test_events_delete_dry_run_sends_no_delete(capsys, session_file):
 @responses.activate
 def test_raw_json_actually_sends_json(capsys, session_file):
     stub("/x", {})
-    assert cli.main(["raw", "/x", "-F", "a=1", "--json"]) == 0
+    assert cli.main(["raw", "/x", "-F", "a=1", "--json", "--yes"]) == 0
     assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+
+@responses.activate
+def test_raw_write_needs_yes_and_sends_nothing_without_it(capsys, session_file):
+    stub("/deleteClass", {})
+    assert cli.main(["raw", "/deleteClass", "-F", "classId=1"]) == 64
+    assert len(responses.calls) == 0
+    assert capsys.readouterr().out == ""
+
+
+@responses.activate
+def test_raw_get_needs_no_confirmation(capsys, session_file):
+    responses.get(f"{API_BASE}/services/planbook/x", json={"ok": True})
+    assert cli.main(["raw", "/services/planbook/x", "--get"]) == 0
+
+
+def test_raw_write_previews_as_destructive(capsys, isolated_config):
+    assert cli.main(["raw", "/deleteClass", "-F", "classId=1", "--dry-run"]) == 0
+    assert parse_stdout(capsys)[0]["destructive"] is True
+
+
+def test_raw_get_previews_as_read_only(capsys, isolated_config):
+    assert cli.main(["raw", "/getAssignments", "--get", "--dry-run"]) == 0
+    assert parse_stdout(capsys)[0]["destructive"] is False
 
 
 def test_events_create_dry_run_previews_the_payload_the_write_would_send(capsys):

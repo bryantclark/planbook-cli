@@ -9,7 +9,7 @@ from pathlib import Path
 from ..cli_support import client_from, emit, teacher_id_from, year_id_from
 from ..client import PlanbookClient
 from ..errors import PlanbookError, UsageError
-from ..mutations import Mutation, Request, preview
+from ..mutations import Mutation, Request, preview, require_intent
 from ..resources.misc import (
     list_attachments,
     raw_standards,
@@ -134,17 +134,18 @@ def cmd_raw(args: argparse.Namespace) -> None:
         else:
             payload[key] = value
     method: Method = "GET" if args.get else ("POST-json" if args.json else "POST")
+    # A POST here can reach /deleteClass as easily as /getAssignments, so it
+    # counts as destructive until the caller says otherwise.
+    mutation = Mutation(
+        resource="raw",
+        operation="request",
+        requests=[Request(args.path, dict(payload), method=method)],
+        assume_destructive=method != "GET",
+    )
     if args.dry_run:
-        emit(
-            preview(
-                Mutation(
-                    resource="raw",
-                    operation="request",
-                    requests=[Request(args.path, dict(payload), method=method)],
-                )
-            )
-        )
+        emit(preview(mutation))
         return
+    require_intent(mutation, confirmed=args.yes)
     client = client_from(args)
     if args.get:
         emit(client.get(args.path, payload))

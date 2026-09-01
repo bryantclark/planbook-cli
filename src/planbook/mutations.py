@@ -58,6 +58,9 @@ class Mutation:
     #: is what `updated_fields` reports, so that stays stable even where the
     #: endpoint answers with a different key per account.
     named: dict[str, tuple[str, str]] = field(default_factory=dict)
+    #: Treat the write as destructive whatever it names. `raw` reaches every
+    #: endpoint, the deleting ones included, and nothing here can tell which.
+    assume_destructive: bool = False
     #: Public names in `named` whose value is a boolean, so the read-back
     #: compares them as one rather than by string.
     flags: frozenset[str] = frozenset()
@@ -72,7 +75,9 @@ class Mutation:
 
     @property
     def destructive(self) -> bool:
-        return self.operation == "delete" or bool(self.cascade)
+        return (
+            self.assume_destructive or self.operation == "delete" or bool(self.cascade)
+        )
 
     def envelope(self) -> Result:
         body: Result = {
@@ -105,9 +110,19 @@ def preview(mutation: Mutation) -> Result:
 def require_intent(mutation: Mutation, *, confirmed: bool) -> None:
     """One destructive-action policy, applied to every resource.
 
-    A delete that also destroys records the caller did not name needs `--yes`.
+    A delete that also destroys records the caller did not name needs `--yes`,
+    and so does a write whose blast radius cannot be read at all.
     """
-    if not mutation.cascade or confirmed:
+    if confirmed:
+        return
+    if mutation.assume_destructive and not mutation.cascade:
+        raise UsageError(
+            f"This {mutation.resource} write can reach a deleting endpoint, and "
+            "nothing here can tell whether it does. Pass --yes to confirm, or "
+            "--dry-run to see the exact request first.",
+            remedy="Re-run with --dry-run to inspect, then --yes to commit.",
+        )
+    if not mutation.cascade:
         return
     # Integer entries are counts; everything else is context for the preview.
     # A zero count is dropped: "0 lessons" reads as if nothing were at stake.

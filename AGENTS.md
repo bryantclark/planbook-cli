@@ -47,7 +47,7 @@ contract version; branch on `contract` if you cache what you learned.
   JSON object, which is what an agent should use:
 
   ```json
-  {"error": {"contract": "1.5", "kind": "SchemaDrift", "code": 65,
+  {"error": {"contract": "1.6", "kind": "SchemaDrift", "code": 65,
              "retryable": false, "message": "...", "remedy": "...",
              "details": {}}}
   ```
@@ -111,7 +111,7 @@ Run `planbook <group> --help` for exact flags.
 | `templates` | lesson templates |
 | reads | `assignments`, `assessments`, `schools`, `standards`, `comments`, `settings`, `schedule special-days` |
 | `attachments` | `list`, `upload`; link with `lessons set --attach` |
-| `raw` | POST to any endpoint; `--get` for GET paths, `--json` for JSON bodies |
+| `raw` | POST to any endpoint (needs `--yes`); `--get` for GET paths, `--json` for JSON bodies |
 | `endpoints` | shows what is mapped |
 | `schema` | the whole command surface as JSON |
 | `check` | preflight: session, hours left, class ids |
@@ -185,7 +185,8 @@ One policy, applied to all of them:
   reports the exact requests plus a `cascade` count of what else would go. It
   still reads: a preview built without the current record would show this write
   blanking fields the real one carries over, so `--dry-run` needs a session.
-- **`--yes` is required** when the delete destroys records you did not name.
+- **`--yes` is required** when the delete destroys records you did not name,
+  and on every `raw` request but `--get`, whose target this tool cannot read.
   Without it the command exits 64 and names the blast radius. The flag exists
   only on those commands; the rest of the table below does not accept one.
 
@@ -200,8 +201,10 @@ Confirm with the user before running any of these:
 | `units delete --unit-id N --class-id N` | — | no |
 | `todos delete --todo-id N` | — | no |
 | `students delete --student-id N` | — | no |
+| `raw PATH` without `--get` | unknown; `/deleteClass` is one POST away | always |
 
 `events delete --occurrence-only` drops one date and needs no confirmation.
+`raw --get` reads, so it needs none either.
 
 ### Limitations
 

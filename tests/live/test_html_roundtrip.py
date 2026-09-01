@@ -11,7 +11,7 @@ It writes real lessons, so it needs more than `PLANBOOK_LIVE`:
     PLANBOOK_LIVE_WRITE=1 \\
     PLANBOOK_TEST_CLASS_ID=12345678 \\
     PLANBOOK_TEST_DATE=09/03/2026 \\
-    pytest tests/test_html_roundtrip_live.py -s
+    pytest tests/live/test_html_roundtrip.py -s
 
 Use a throwaway class. The date must hold no lesson: the run refuses to start
 otherwise, rather than overwriting one. It writes one lesson, rewrites it once

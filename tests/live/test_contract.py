@@ -6,7 +6,7 @@ account and check that each mapped reader still returns what it promises.
 
 They are skipped unless `PLANBOOK_LIVE=1`, so a plain `pytest` stays offline:
 
-    PLANBOOK_LIVE=1 pytest tests/test_contract_live.py -q
+    PLANBOOK_LIVE=1 pytest tests/live/test_contract.py -q
 
 They only read. No test here writes, and none may be given one.
 """

@@ -21,10 +21,10 @@ reads browser cookie stores so `auth import` needs no manual paste. `hatchling` 
 - **Dev install**: `uv pip install -e ".[dev]"`
 - **Test**: `pytest` — `pyproject.toml` puts `src` on the path, so this always
   tests the checked-out source rather than whichever `planbook` is installed
-- **Contract test**: `PLANBOOK_LIVE=1 pytest tests/test_contract_live.py` — the
+- **Contract test**: `PLANBOOK_LIVE=1 pytest tests/live/test_contract.py` — the
   opt-in read-only pass against the real account, skipped by default
 - **HTML round trip**: `PLANBOOK_LIVE_WRITE=1 PLANBOOK_TEST_CLASS_ID=N
-  PLANBOOK_TEST_DATE=MM/DD/YYYY pytest tests/test_html_roundtrip_live.py -s` —
+  PLANBOOK_TEST_DATE=MM/DD/YYYY pytest tests/live/test_html_roundtrip.py -s` —
   writes lessons in a throwaway class; see the module docstring first
 - **Lint**: `ruff check src tests`
 - **Format**: `ruff format src tests`

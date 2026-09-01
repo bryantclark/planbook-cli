@@ -60,6 +60,10 @@ contract version; branch on `contract` if you cache what you learned.
   create names nothing, so the list is empty there.
 - **`cascade`** appears only when a write destroys records you did not name.
   It counts them, so `--dry-run` shows the blast radius before you commit.
+- **`verified`** appears only on `attachments upload`: `true` when the account
+  lists the file afterwards, `false` when it does not, `null` when the lookup
+  failed. It is a report, not a postcondition — a `false` still means the file
+  was sent, so go and look rather than uploading it again.
 - **`effects`** appears only when a write did something beyond the fields you
   named, so its absence is the signal that nothing else happened:
 
@@ -126,10 +130,12 @@ identical records appearing at once — the command fails with `kind:
 Every write is read back and compared against the fields you named, so a
 server that answers HTTP 200 and stores nothing fails with `kind:
 "PostconditionFailed"`. If the read-back itself fails, the write already
-landed: that is `kind: "Ambiguous"`, and its remedy says not to retry. Three
-are unverified: `students delete` without `--class-id` (there is no get-one
-endpoint to read back), `attachments upload`, and `raw`, which cannot know what
-it just sent.
+landed: that is `kind: "Ambiguous"`, and its remedy says not to retry. Two are
+unverified: `students delete` without `--class-id` (there is no get-one
+endpoint to read back) and `raw`, which cannot know what it just sent.
+`attachments upload` is checked but not enforced — it reports `verified`
+instead of failing, because the resource list keys files by `fileKey` and
+nothing proves that is the file's own name on every account.
 
 `students update` needs `--class-id` as well as `--student-id`. `units update`
 and `units delete` need the class the unit is in, and refuse (exit 64) if it is

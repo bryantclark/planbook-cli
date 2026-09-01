@@ -809,6 +809,10 @@ def test_an_upload_that_replaces_nothing_claims_no_effect(
         {"fileList": [{"fileKey": "notes.pdf", "fileUrl": "u", "fileSize": 1}]},
     )
     stub(
+        "/getAttachmentList",
+        {"fileList": [{"fileKey": "fresh.pdf", "fileUrl": "u2", "fileSize": 1}]},
+    )
+    stub(
         "/uploadAttachment",
         {"fileName": "fresh.pdf", "fileURL": "https://x/fresh.pdf"},
     )
@@ -816,8 +820,44 @@ def test_an_upload_that_replaces_nothing_claims_no_effect(
     captured = capsys.readouterr()
     result = json.loads(captured.out)[0]
     assert result["ok"] is True
+    assert result["verified"] is True
     assert "effects" not in result
-    assert "fresh.pdf" not in captured.err
+    assert "warning" not in captured.err
+
+
+@responses.activate
+def test_an_upload_missing_from_the_list_afterwards_is_reported_unverified(
+    tmp_path, capsys, session_file
+):
+    path = tmp_path / "fresh.pdf"
+    path.write_text("x")
+    stub("/getClasses2", {"classes": [{"classId": 1, "teacherId": 42}]})
+    stub("/getAttachmentList", {"fileList": []})
+    stub(
+        "/uploadAttachment",
+        {"fileName": "fresh.pdf", "fileURL": "https://x/fresh.pdf"},
+    )
+    assert cli.main(["attachments", "upload", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)[0]["verified"] is False
+    assert "not in the account's resource list" in captured.err
+
+
+@responses.activate
+def test_an_upload_whose_readback_fails_reports_null_not_false(
+    tmp_path, capsys, session_file
+):
+    # "Nobody could look" and "it is not there" must not be the same answer.
+    path = tmp_path / "fresh.pdf"
+    path.write_text("x")
+    stub("/getClasses2", {"classes": [{"classId": 1, "teacherId": 42}]})
+    stub("/getAttachmentList", {"error": "true", "msg": "nope"})
+    stub(
+        "/uploadAttachment",
+        {"fileName": "fresh.pdf", "fileURL": "https://x/fresh.pdf"},
+    )
+    assert cli.main(["attachments", "upload", str(path)]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["verified"] is None
 
 
 @responses.activate

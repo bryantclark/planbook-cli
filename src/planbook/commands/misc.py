@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from ..cli_support import client_from, emit, teacher_id_from, year_id_from
 from ..client import PlanbookClient
@@ -19,7 +20,7 @@ from ..resources.misc import (
     standards,
     upload,
 )
-from ..types import FormPayload, Method
+from ..types import FormPayload, Method, Result
 from ..widen import json_of
 
 
@@ -66,19 +67,57 @@ def cmd_attachments_upload(args: argparse.Namespace) -> None:
     # upload replaces nothing, not that nobody looked.
     client = client_from(args)
     clashes = _replaced_names(client, args, args.files, dry_run=args.dry_run)
-    emit(
-        [
-            upload(
-                client,
-                f,
-                dry_run=args.dry_run,
-                # None means the lookup failed, which is not the same answer
-                # as "replaces nothing".
-                replaces=None if clashes is None else Path(f).name in clashes,
+    results = [
+        upload(
+            client,
+            f,
+            dry_run=args.dry_run,
+            # None means the lookup failed, which is not the same answer
+            # as "replaces nothing".
+            replaces=None if clashes is None else Path(f).name in clashes,
+        )
+        for f in args.files
+    ]
+    if not args.dry_run:
+        _report_stored(client, args, results)
+    emit(results)
+
+
+def _report_stored(
+    client: PlanbookClient, args: argparse.Namespace, results: list[Result]
+) -> None:
+    """Read the resource list back and say whether each upload is in it.
+
+    `/uploadAttachment` answers with a URL rather than a receipt, so the list
+    is the only evidence a file reached the account. One read covers the whole
+    batch.
+
+    This reports; it does not fail. Every other write raises
+    `PostconditionFailed` when the read-back disagrees, but the list keys files
+    by `fileKey` and nothing proves that is the file's own name on every
+    account. A wrong guess there would call a good upload a failure, so the
+    answer goes in `verified` for the caller to judge: true, false, or null
+    when the lookup itself failed.
+    """
+    try:
+        held = list_attachments(client, teacher_id=teacher_id_from(args))
+    except PlanbookError:
+        for result in results:
+            result["verified"] = None
+        return
+    names = {str(a["name"]) for a in held}
+    paths = {urlsplit(str(a["url"])).path for a in held}
+    for result in results:
+        found = str(result.get("name")) in names or (
+            urlsplit(str(result.get("url"))).path in paths
+        )
+        result["verified"] = found
+        if not found:
+            print(
+                f"warning: {result.get('name')} uploaded but is not in the "
+                "account's resource list; check `planbook attachments list`",
+                file=sys.stderr,
             )
-            for f in args.files
-        ]
-    )
 
 
 def _replaced_names(

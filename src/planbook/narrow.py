@@ -31,8 +31,18 @@ def as_list(value: JsonValue, *, where: str) -> list[JsonValue]:
 
 
 def records(value: JsonValue, *, where: str) -> list[JsonObject]:
-    """The objects in a wire array. A stray non-object row is dropped, not fatal."""
-    return [item for item in as_list(value, where=where) if isinstance(item, dict)]
+    """The objects in a wire array, or stop.
+
+    A row that is not an object is drift, not noise: dropping it returned a
+    short list that read as "the account has fewer of these".
+    """
+    rows = as_list(value, where=where)
+    bad = [i for i, item in enumerate(rows) if not isinstance(item, dict)]
+    if bad:
+        raise SchemaDrift(
+            f"{where}: row(s) {bad} are not objects. The API shape may have changed."
+        )
+    return [item for item in rows if isinstance(item, dict)]
 
 
 def unwrap(

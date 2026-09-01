@@ -293,6 +293,14 @@ def test_list_classes_raises_schema_drift_without_classes_key():
         list_classes(PlanbookClient("t.t.t"))
 
 
+@responses.activate
+def test_a_non_object_row_stops_the_run_instead_of_vanishing():
+    # Dropping the row returned a short list that read as "one class".
+    stub("/getClasses2", {"currentYearId": 99, "classes": [class_wire_record(), "?"]})
+    with pytest.raises(SchemaDrift, match="row"):
+        list_classes(PlanbookClient("t.t.t"))
+
+
 def test_parse_time_accepts_24h_and_12h():
     # Planbook stores only 12-hour times; a 24-hour string is accepted on the
     # wire and stored as empty, silently losing the time.

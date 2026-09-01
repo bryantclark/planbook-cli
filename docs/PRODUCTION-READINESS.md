@@ -47,8 +47,8 @@ want the same thing.
 | Coverage | ~30 endpoints: classes, lessons, units, events, to-dos, students, grades, attendance, standards, assignments, attachments |
 | Users | One teacher, daily, through an AI assistant |
 | Built against | The private web-app API, mapped by observing a signed-in session's own traffic |
-| Tests / CI | Unit tests with mocked HTTP, lint, type-check — all gates enforced on every push |
-| Live validation | One account, one teacher. The tests pin the client's own behaviour; they do not prove the API behaves as assumed |
+| Tests / CI | Unit tests with mocked HTTP, lint, type-check — all gates enforced on every push, with actions pinned to commit SHAs |
+| Live validation | One account, one teacher. `PLANBOOK_LIVE=1 pytest tests/test_contract_live.py` reads that account and checks every projection against real responses; it is opt-in and off in CI, so drift is caught only when somebody runs it |
 
 `docs/API-NOTES.md` documents the API's conventions and traps — full-record
 replace on update, `Y`/`N` booleans, `0` for absent integers, fields that

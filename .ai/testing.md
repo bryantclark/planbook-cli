@@ -16,6 +16,11 @@ Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
 field the test is about as an override, so the odd value stays visible in the
 test rather than buried in a default.
 
+The one exception is `tests/test_contract_live.py`, which reads the real
+account to check the projections still match the API. It skips unless
+`PLANBOOK_LIVE=1`, so the default run stays offline, and it never writes. Add a
+case there when you map a reader; keep writes out of it.
+
 ## What to test
 
 - Each CLI subcommand: verify it sends the right wire payload and maps the

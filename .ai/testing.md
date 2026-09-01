@@ -16,17 +16,11 @@ Every test uses `responses` to mock HTTP. No test hits `api.planbook.com`.
 field the test is about as an override, so the odd value stays visible in the
 test rather than buried in a default.
 
-`tests/live/` is the exception, and everything in it is skipped by default.
-`tests/live/test_contract.py` reads the real account to check the projections
-still match the API. It skips unless `PLANBOOK_LIVE=1`, so the default run
-stays offline, and it never writes. Add a case there when you map a reader;
-keep writes out of it.
-
-`tests/live/test_html_roundtrip.py` measures what Planbook does to text it
-stores. It writes, so it needs `PLANBOOK_LIVE_WRITE=1`. It touches nothing that
-was already there: it creates its own class, writes in that, and deletes the
-class at the end. A write test added here does the same — never write into a
-class the account already had.
+There is no live-API test, opt-in or otherwise. Checking the mapping against
+the real account is a thing you do by hand, once, when you map an endpoint or
+suspect drift; what it finds goes into `docs/API-NOTES.md` and into a mocked
+test built from the real response. See the text round trip recorded there for
+the shape that takes.
 
 ## What to test
 
@@ -39,5 +33,3 @@ class the account already had.
 ## Where tests live
 
 - `tests/` at the repo root, flat: one module per area (`test_api.py`, `test_cli.py`).
-- `tests/live/` for anything that talks to the real API. Nothing there runs
-  without its environment variable.

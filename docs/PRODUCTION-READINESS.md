@@ -48,7 +48,7 @@ want the same thing.
 | Users | One teacher, daily, through an AI assistant |
 | Built against | The private web-app API, mapped by observing a signed-in session's own traffic |
 | Tests / CI | Unit tests with mocked HTTP, lint, type-check — all gates enforced on every push, with actions pinned to commit SHAs |
-| Live validation | One account, one teacher. `PLANBOOK_LIVE=1 pytest tests/live/test_contract.py` reads that account and checks every projection against real responses; it is opt-in and off in CI, so drift is caught only when somebody runs it |
+| Live validation | One account, one teacher, by hand. Nothing automated reads the real API, so a field Planbook renames is found when a command breaks, not before. What hand-checking has found is in `docs/API-NOTES.md` |
 
 `docs/API-NOTES.md` documents the API's conventions and traps — full-record
 replace on update, `Y`/`N` booleans, `0` for absent integers, fields that

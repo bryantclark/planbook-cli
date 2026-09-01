@@ -112,6 +112,43 @@ See [read-before-write decision](../decisions/2026-08-28-read-before-write.md). 
 | `/updateUnit` | `unitDesc`, `unitStart`, `unitEnd`, `unitNum`, `unitTitle`, and the six section texts (`unitLessonText`, `unitHomeworkText`, `unitNotesText`, `unitSection4Text`–`unitSection6Text`) | emptied |
 | `/updateStudentServlet` | email, phone, parent email, code, birthdate, middle name, `studentPhotoUrl` | emptied |
 
+## What the server does to text it stores
+
+Measured 2026-08-31: every shape below written into `lessonText`, `homeworkText`
+and `notesText`, read back, then written again from the read-back.
+
+| shape | sent | stored |
+|---|---|---|
+| plain text | `Read chapter 4.` | verbatim |
+| one or more `<p>` | `<p>First.</p><p>Second.</p>` | verbatim |
+| nested list | `<ul><li>One<ul><li>Inner</li></ul></li></ul>` | verbatim |
+| named entity | `<p>Salt &amp; pepper</p>` | verbatim |
+| bare ampersand | `<p>Salt & pepper</p>` | `<p>Salt &amp; pepper</p>` |
+| unicode punctuation | `<p>Café — naïve – “quoted”</p>` | `<p>Café &mdash; naïve &ndash; &ldquo;quoted&rdquo;</p>` |
+| script tag | `<p>ok</p><script>alert(1)</script>` | verbatim, unescaped |
+| trailing space | `<p>Read chapter 4.</p> ` | verbatim |
+| empty | `` | verbatim |
+| 2000 words | — | verbatim |
+
+Three things follow:
+
+- **The rewrite is idempotent.** Writing the stored text back returns it
+  unchanged, so read-before-write carry-over cannot compound it. This was the
+  risk worth measuring.
+- **Accented letters survive raw** (`é`, `ï`); only `&`, the dashes and the
+  curly quotes are entity-encoded.
+- **A byte comparison fails a write that landed.** `same()` in `fields.py`
+  resolves entities on both sides for exactly this reason.
+
+Nothing is sanitised: a `<script>` tag is stored and returned as written.
+
+## `/getClass` answers for a deleted class
+
+`/deleteClass` removes the class from `/getClasses2` and leaves `/getClass`
+answering with the whole record - name, dates, schedule - indefinitely. Reading
+a delete back through `/getClass` therefore reports failure on every successful
+delete. The list is the only endpoint that forgets.
+
 ## Standards and assignments on a lesson
 
 Both go through `/updateLesson` and only stick to a lesson that already exists —
@@ -233,6 +270,14 @@ Terms (2020-07-01) have **no** anti-scraping, anti-automation, or
 reverse-engineering clause. They forbid forging headers, reserve rate limits, and
 allow discretionary termination. Risk is account termination, not legal.
 **Use your own account only.**
+
+## `/addClass` and the weekday names
+
+The schedule is built from the full weekday names (`monday`, ...); a name the
+table does not know matches nothing, and the class stores with every day off.
+Such a class teaches nothing, so `/updateLesson` has no slot to write into and
+the lesson silently does not save. `classes create` rejects unknown names and
+reads the stored schedule back, because `/addClass` reports success either way.
 
 ## Open
 

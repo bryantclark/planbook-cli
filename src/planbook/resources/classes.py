@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from .. import projection
 from ..client import PlanbookClient
-from ..errors import SchemaDrift, UsageError
+from ..errors import PostconditionFailed, SchemaDrift, UsageError
 from ..mutations import (
     Mutation,
     Request,
@@ -15,7 +15,7 @@ from ..mutations import (
     require_intent,
     resolve_created,
 )
-from ..narrow import as_object, flag, records, string
+from ..narrow import as_id, as_object, flag, records, string
 from ..types import (
     ClassList,
     FormPayload,
@@ -58,6 +58,22 @@ def list_classes(client: PlanbookClient) -> ClassList:
         lesson_banks=checked.get("lessonBanks"),
         district_lesson_banks=checked.get("districtLessonBanks"),
     )
+
+
+def require_weekdays(days: list[str]) -> None:
+    """Refuse a day name the schedule does not know.
+
+    `class_payload` builds the week from `DAY_ORDER`, so an unrecognised name
+    matches nothing: the class stores with every day off, teaches nothing, and
+    accepts no lesson. It reports success the whole way.
+    """
+    unknown = sorted(day for day in days if day not in DAY_ORDER)
+    if unknown:
+        raise UsageError(
+            f"Unknown weekday name(s): {', '.join(unknown)}. "
+            f"Use {', '.join(DAY_ORDER)}.",
+            remedy="On the command line, --days takes letters: M T W R F S U.",
+        )
 
 
 def require_taught(times: dict[str, tuple[str, str]] | None, days: list[str]) -> None:
@@ -140,6 +156,7 @@ def create_class(
     lesson_layout_id: Id = 0,
     dry_run: bool = False,
 ) -> Result:
+    require_weekdays(days)
     require_taught(times, days)
     payload = class_payload(
         name=name,
@@ -180,12 +197,48 @@ def create_class(
         ),
         list_command="planbook classes list",
     )
+    _require_schedule(
+        client, as_id(class_id, where="addClass.id"), days=days, times=times
+    )
     return {
         **result,
         "name": name,
         "days": json_list(days),
         "id": class_id,
     }
+
+
+def _require_schedule(
+    client: PlanbookClient,
+    class_id: Id,
+    *,
+    days: list[str],
+    times: dict[str, tuple[str, str]] | None,
+) -> None:
+    """Prove the new class teaches the days it was given.
+
+    `/addClass` reports success and can still store a class that teaches
+    nothing, and a class that teaches nothing has no slot to write a lesson
+    into - so the failure surfaces later, as a lesson that will not save.
+    """
+    record = as_object(get_class(client, class_id), where="getClass")
+    failed = [
+        field
+        for field, check in _schedule_checks(days, times).items()
+        if not check(record)
+    ]
+    if failed:
+        raise PostconditionFailed(
+            f"The class was created (id {class_id}) but its "
+            f"{', '.join(failed)} did not store, so it teaches nothing and no "
+            "lesson can be written to it.",
+            details={"id": class_id, "unstored": failed},
+            remedy=(
+                "Do NOT retry - the class exists. Set the schedule in "
+                "Planbook's own UI, or delete it with `planbook classes "
+                "delete --class-id <id> --yes`."
+            ),
+        )
 
 
 def update_class(
@@ -272,6 +325,7 @@ def update_class(
 
     # Keyed by the field `getClass` answers with, so the read-back checks
     # exactly what this call changed.
+    require_weekdays(new_days)
     require_taught(times, new_days)
     named = {
         public: (field, str(payload.get(field, "")))
@@ -427,6 +481,15 @@ def delete_class(
 
 
 def _class_or_none(client: PlanbookClient, class_id: Id) -> JsonObject | None:
-    """The class, or None once it is gone."""
-    record = get_class(client, class_id)
-    return record if isinstance(record, dict) and record.get("className") else None
+    """The class, or None once it is gone.
+
+    Asked of the list, not `/getClass`: a deleted class keeps answering there
+    with its whole record, so reading it back that way called every successful
+    delete a PostconditionFailed. The list is what forgets it.
+    """
+    wanted = str(intish(class_id))
+    body = client.require(client.post("/getClasses2"), "classes", where="getClasses2")
+    for record in records(body["classes"], where="getClasses2.classes"):
+        if str(record.get("cId")) == wanted:
+            return record
+    return None

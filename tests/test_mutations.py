@@ -10,6 +10,7 @@ import responses
 
 from conftest import (
     class_record,
+    class_wire_record,
     event_list,
     event_record,
     lesson_day,
@@ -41,7 +42,7 @@ from planbook.mutations import (
     require_intent,
     resolve_created,
 )
-from planbook.resources.classes import create_class, update_class
+from planbook.resources.classes import create_class, delete_class, update_class
 from planbook.resources.events import delete_event
 from planbook.resources.lessons import delete_lesson, set_lesson
 from planbook.resources.people import update_student
@@ -705,6 +706,69 @@ def test_attaching_a_standard_on_a_new_date_the_server_dropped_is_not_success():
             class_id=1,
             date="09/03/2026",
             standards=["118071"],
+        )
+
+
+@responses.activate
+def test_a_stored_entity_is_not_a_failed_write():
+    # Planbook stores `&` as `&amp;` and unicode punctuation as named
+    # entities, so a byte comparison failed a write that had landed.
+    stub("/getLessonsEvents", lesson_days(lesson_day()))
+    stub("/updateLesson", {"ok": True})
+    stub(
+        "/getLessonsEvents",
+        saved_lesson(lessonText="<p>Salt &amp; pepper &mdash; done</p>"),
+    )
+    result = set_lesson(
+        PlanbookClient("t.t.t"),
+        class_id=1,
+        date="09/03/2026",
+        text="<p>Salt & pepper \u2014 done</p>",
+    )
+    assert result["ok"] is True
+
+
+@responses.activate
+def test_deleting_a_class_asks_the_list_not_the_deleted_record():
+    # /getClass keeps answering with the whole record after a delete, so
+    # reading it back that way failed every successful delete.
+    stub("/getClass", class_record())
+    stub("/getLessonsEvents", lesson_days())
+    stub("/deleteClass", {"ok": True})
+    stub("/getClasses2", {"classes": []})
+    result = delete_class(PlanbookClient("t.t.t"), class_id=123, confirmed=True)
+    assert result["ok"] is True
+
+
+@responses.activate
+def test_a_created_class_that_teaches_nothing_is_a_failure():
+    # /addClass reports success either way, and a class that teaches nothing
+    # has no slot to write a lesson into.
+    stub("/getClasses2", {"classes": []})
+    stub("/addClass", {"ok": True})
+    stub("/getClasses2", {"classes": [class_wire_record()]})
+    stub("/getClass", class_record(rows=[schedule_row()]))
+    with pytest.raises(PostconditionFailed, match="teaches nothing"):
+        create_class(
+            PlanbookClient("t.t.t"),
+            name="Biology",
+            start_date="08/31/2026",
+            end_date="06/06/2027",
+            days=["monday"],
+        )
+
+
+def test_creating_a_class_refuses_a_weekday_name_it_cannot_map():
+    # "M" matches nothing in DAY_ORDER, so the class would store with every
+    # day off and accept no lesson.
+    with pytest.raises(UsageError, match="Unknown weekday"):
+        create_class(
+            None,
+            name="Bio",
+            start_date="08/31/2026",
+            end_date="06/06/2027",
+            days=["M", "W"],
+            dry_run=True,
         )
 
 

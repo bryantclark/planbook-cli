@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from html import unescape
 
 from .narrow import flag
 from .types import JsonRecord
@@ -140,14 +141,20 @@ def same(stored: object, written: str, *, is_flag: bool = False) -> bool:
     "true"/"false" or "1"/"0". Which fields those are is declared by the
     resource, not guessed from the value: a field set to "0" is not a flag.
 
-    Values compare with surrounding whitespace stripped. Everything else is
-    byte-equality, including lesson HTML: whether Planbook normalises stored
-    markup - rewrapping a bare string, re-encoding an entity - is unconfirmed,
-    and a live round-trip check is still outstanding. If it does, `lessons set
-    --text` will report PostconditionFailed on a write that landed.
+    Values compare with surrounding whitespace stripped, and with HTML
+    entities resolved. Planbook re-encodes what it stores: a bare `&` comes
+    back `&amp;`, and `-`, `"` and their unicode cousins come back `&mdash;`,
+    `&ldquo;` and friends. Comparing those byte for byte failed a write that
+    had landed. The rewrite is idempotent - storing the stored text returns it
+    unchanged - so carry-over resends it safely. See docs/API-NOTES.md.
     """
     if is_flag:
         return flag(stored) is flag(written)
     if stored is None:
         return written.strip() == ""
-    return str(stored).strip() == written.strip()
+    return _plain(stored) == _plain(written)
+
+
+def _plain(value: object) -> str:
+    """One side of a comparison, with entities resolved and edges trimmed."""
+    return unescape(str(value)).strip()

@@ -12,6 +12,17 @@ No published API exists; this tool talks to the same endpoints the web app uses.
 See [docs/API-NOTES.md](docs/API-NOTES.md) for details.
 Run `planbook endpoints` for current coverage.
 
+## What it is for
+
+Planning with an AI assistant. Install it, sign in once a day, and the
+assistant reads and writes your Planbook directly instead of you copying
+lessons between windows. [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) shows a
+week planned this way.
+
+It runs on your own account with a full-account session token, so it is not
+something to hand to a colleague. What a shareable version would need is in
+[docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
+
 ## Install
 
 ```bash

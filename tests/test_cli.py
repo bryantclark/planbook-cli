@@ -4,20 +4,11 @@ import urllib.parse
 import pytest
 import responses
 
-from conftest import DATE, event_list, lesson_days, saved_lesson, stub
+from conftest import DATE, event_list, lesson_days, parse_stdout, saved_lesson, stub
 from planbook import cli
 from planbook.client import PlanbookClient
 from planbook.resources.events import new_event_payload
 from planbook.resources.lessons import set_lesson
-
-
-def parse_stdout(capsys):
-    captured = capsys.readouterr()
-    return json.loads(captured.out), captured
-
-
-def write_session(session_file):
-    return session_file
 
 
 @responses.activate
@@ -267,6 +258,20 @@ def test_events_create_dry_run_previews_the_payload_the_write_would_send(capsys)
     )
     payload = json.loads(capsys.readouterr().out)["payload"]
     assert payload == new_event_payload(title="T", date="09/01/2026")
+
+
+@responses.activate
+def test_no_school_confirmation_is_spelled_yes_and_force_still_works(session_file):
+    # One destructive policy: every command that destroys records it did not
+    # name takes --yes. --force is the pre-0.4 spelling, kept as an alias.
+    for confirm in ("--yes", "--force"):
+        responses.reset()
+        stub("/getEvents", event_list())
+        stub("/addEvent", event_list())
+        stub("/getEvents", event_list({"eventId": 9, "eventTitle": "Holiday"}))
+        args = ["events", "create", "--title", "Holiday", "--date", DATE, "--no-school"]
+        assert cli.main([*args, confirm]) == 0, confirm
+        assert [c for c in responses.calls if c.request.url.endswith("/addEvent")]
 
 
 def test_auth_token_without_stdin_exits_64_not_traceback(monkeypatch):

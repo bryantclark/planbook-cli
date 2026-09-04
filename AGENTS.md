@@ -195,7 +195,7 @@ Confirm with the user before running any of these:
 |---|---|---|
 | `classes delete --class-id N` | every lesson in the class | always |
 | `events delete --event-id N` | the whole repeating series | when the series has more than one date |
-| `events create --no-school` | every lesson in the date range | when lessons exist (spelled `--force`) |
+| `events create --no-school` | every lesson in the date range | when lessons exist |
 | `lessons delete --class-id N --date D` | — | no |
 | `units delete --unit-id N --class-id N` | — | no |
 | `todos delete --todo-id N` | — | no |

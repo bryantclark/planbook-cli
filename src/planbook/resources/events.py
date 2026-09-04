@@ -174,7 +174,7 @@ def create_event(
     private: bool = False,
     no_school: bool = False,
     repeats: str = "daily",
-    force: bool = False,
+    confirmed: bool = False,
     dry_run: bool = False,
 ) -> Result:
     payload = new_event_payload(
@@ -195,9 +195,9 @@ def create_event(
     )
 
     # A no-school day permanently deletes every lesson in range, so count them
-    # first. --force already means "delete whatever is there", so the count is
-    # only worth a request for a preview or a run that still needs --yes.
-    if no_school and (dry_run or not force):
+    # first. --yes already means "delete whatever is there", so the count is
+    # only worth a request for a preview or a run that still needs it.
+    if no_school and (dry_run or not confirmed):
         assert client is not None  # the caller only omits it for an offline preview
         doomed = lessons_between(client, start=date, end=end_date or date)
         if doomed:
@@ -208,7 +208,7 @@ def create_event(
             }
     if dry_run:
         return preview(mutation)
-    require_intent(mutation, confirmed=force)
+    require_intent(mutation, confirmed=confirmed)
     assert client is not None  # only an offline preview runs without one
 
     # /addEvent does not report the id it created, so diff the list around the

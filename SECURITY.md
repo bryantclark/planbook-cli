@@ -8,9 +8,8 @@ rather than a public issue. Expect a reply within a week.
 ## Reporting something about Planbook.com
 
 This project is not affiliated with Planbook.com. Report issues about their
-service to support@planbook.com, not here. Findings from building this tool
-were reported to Planbook directly; this repository does not publish exploitable
-detail about their platform.
+service to support@planbook.com, not here. This repository does not publish
+exploitable detail about their platform.
 
 ## What this tool does with your credentials
 

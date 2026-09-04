@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.3.0...planbook-cli-v0.3.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* confirm no-school deletes with --yes like every other cascade ([#20](https://github.com/bryantclark/planbook-cli/issues/20)) ([70cef45](https://github.com/bryantclark/planbook-cli/commit/70cef45aaa6247c3345f3657860805833390a2e3))
+* let the publish job clone a private repo ([#18](https://github.com/bryantclark/planbook-cli/issues/18)) ([14d1b96](https://github.com/bryantclark/planbook-cli/commit/14d1b9687260cee7cea590b748e1e1df8c40f4f0))
+
 ## [0.3.0](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.2.2...planbook-cli-v0.3.0) (2026-08-31)
 
 

@@ -1,9 +1,28 @@
 # What it would take to make this official
 
-This tool works today, and I'd love for you to play with it to see why it's
-useful. It isn't production-ready — primarily because of how it handles
-authentication. Below is what I think it would take to turn this into a
-first-rate tool that teachers would want.
+This tool works today. Play with it to see why teachers want it, then read
+this for what stands between it and something you could put your name on.
+
+You don't need to endorse this implementation. Treat the repo as two things:
+evidence that teachers want programmatic access, and a free reference client
+that already encodes the traps in the current API. The work that matters is on
+your side, and it is small: an official way for a third-party client to
+authenticate, where you control permissions, revocation, and support.
+
+## What Planbook gets
+
+- **Teachers who plan with an assistant stay in Planbook.** The tools an
+  assistant can connect to become the system of record. The rest become the
+  export target.
+- **A governed ecosystem instead of a liability.** Today the only way to do this
+  is a full-account session token in a third-party program. OAuth with scopes
+  turns that into consent, audit, and a revoke button.
+- **Distribution you don't have to build.** A hosted MCP server lands Planbook
+  in the connector lists of Claude, ChatGPT, and Gemini. Canvas, Brightspace,
+  and Khan Academy are already there.
+- **Most of the spec for free.** `docs/API-NOTES.md` documents the current
+  API's conventions and traps. The scope list below matches what the API
+  already separates.
 
 ## The short version
 

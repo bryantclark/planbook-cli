@@ -12,6 +12,19 @@ No published API exists; this tool talks to the same endpoints the web app uses.
 See [docs/API-NOTES.md](docs/API-NOTES.md) for details.
 Run `planbook endpoints` for current coverage.
 
+## Who this is for
+
+- **A teacher who plans with an AI assistant.** Install it, sign in once a day,
+  and let the assistant read and write your Planbook directly. See
+  [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) for what planning a week looks like.
+- **Planbook.** This repo is a working reference client and a proof that
+  teachers want programmatic access. What an official version needs, and why
+  authentication is the only real blocker, is in
+  [docs/PRODUCTION-READINESS.md](docs/PRODUCTION-READINESS.md).
+
+Not for: sharing with other teachers as-is. The token it carries is a
+full-account session with no scopes or revocation. That is the blocker above.
+
 ## Install
 
 ```bash

@@ -11,9 +11,6 @@ exist; endpoints can change without notice.
 | `api.planbook.com` | The API. Root path serves marketing HTML — looks like a dead end but isn't. |
 | `auth.planbook.com` | Login. SSO: Google, Microsoft, Clever, ClassLink, Apple. |
 
-Edge protection is not uniform across these hosts. Details went to Planbook
-directly; see [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md).
-
 ## Auth
 
 **The credential is a JWT, not the `SESSION` cookie.**

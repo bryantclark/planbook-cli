@@ -152,11 +152,8 @@ conclusions:
 
 ## Things worth fixing regardless
 
-Found while building; reported in general terms. Details went to Planbook
-directly.
+Found while building.
 
-- The edge configuration differs between hosts in a way that makes the WAF
-  on one of them easy to sidestep.
 - Creating an event with `noSchool=true` permanently deletes every lesson on
   that date, and deleting the event doesn't bring them back. This CLI warns
   first. The web app should too.

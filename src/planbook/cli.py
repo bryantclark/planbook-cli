@@ -557,11 +557,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="mark as a no-school day",
     )
     e.add_argument(
-        "--force",
+        "--yes",
         action="store_true",
-        help="with --no-school, delete the lessons that already exist on that date",
+        help="with --no-school, confirm deleting the lessons already on those dates",
     )
-    e.add_argument("--yes", dest="force", action="store_true", help=argparse.SUPPRESS)
+    # The old spelling. Hidden rather than removed so a script written against
+    # 0.3 keeps working; every other destructive command says --yes.
+    e.add_argument("--force", dest="yes", action="store_true", help=argparse.SUPPRESS)
     e.add_argument(
         "--repeats",
         default="daily",

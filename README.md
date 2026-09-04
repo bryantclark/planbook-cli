@@ -117,4 +117,4 @@ PRs, so close and reopen it once (`gh pr close N && gh pr reopen N`). To skip th
 permanently, give release-please a fine-grained PAT.
 
 First publish: create `planbook-cli` on PyPI, add a trusted publisher (workflow
-`publish.yml`, environment `pypi`), add a GitHub environment named `pypi`.
+`release.yml`, environment `pypi`), add a GitHub environment named `pypi`.

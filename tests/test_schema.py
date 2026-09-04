@@ -95,6 +95,17 @@ def test_schema_marks_deletes_destructive_and_creates_id_returning(
     assert by_name["units create"]["returns_id"] is True
 
 
+def test_schema_shows_one_spelling_for_confirmation(capsys, isolated_config):
+    # An agent learns --yes once. A hidden alias must not leak into the manifest.
+    cli.main(["schema"])
+    body, _ = parse_stdout(capsys)
+    for command in body["commands"]:
+        names = {a["name"] for a in command["arguments"]}
+        assert "--force" not in names, command["command"]
+    by_name = {c["command"]: c for c in body["commands"]}
+    assert "--yes" in {a["name"] for a in by_name["events create"]["arguments"]}
+
+
 def test_schema_publishes_the_id_convention(capsys, isolated_config):
     cli.main(["schema"])
     body, _ = parse_stdout(capsys)

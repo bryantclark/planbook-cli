@@ -2,6 +2,7 @@ import pytest
 import requests
 import responses
 
+from conftest import stub
 from planbook.client import API_BASE, PlanbookClient
 from planbook.errors import ApiError, NotAuthenticated, SchemaDrift
 from planbook.wire import intish, yn
@@ -109,3 +110,21 @@ def test_post_json_sends_a_json_body():
     responses.post(f"{API_BASE}/x", json={})
     PlanbookClient("t.t.t").post_json("/x", {"a": 1})
     assert responses.calls[0].request.headers["Content-Type"] == "application/json"
+
+
+@responses.activate
+def test_a_json_boolean_error_is_still_an_error():
+    # Planbook answers `{"error": "true"}`, but a string compare would read a
+    # real JSON boolean as success and hand back a failed write.
+    stub("/getClasses2", {"error": True, "msg": "nope"})
+    with pytest.raises(ApiError):
+        PlanbookClient("t.t.t").post("/getClasses2", {})
+
+
+@responses.activate
+def test_a_json_boolean_false_error_is_a_success():
+    # `flag` reads truthiness, not presence: a false alarm here would fail
+    # every command in the tool.
+    for body in ({"error": "false"}, {"error": 0}, {"error": False}):
+        stub("/getClasses2", body)
+        assert PlanbookClient("t.t.t").post("/getClasses2", {}) == body

@@ -159,7 +159,7 @@ attachmentNames=file.txt   attachmentURL=https://s3/...   attachmentPrivate=N
 
 Creating an event with `noSchool=true` **permanently deletes every lesson on that
 date**. Deleting the event restores the empty slots but not the lessons. The CLI
-checks for existing lessons first and refuses without `events create --force`.
+checks for existing lessons first and refuses without `events create --yes`.
 
 ## Times
 

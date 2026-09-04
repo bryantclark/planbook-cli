@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.3.1...planbook-cli-v0.3.2) (2026-09-04)
+
+
+### Documentation
+
+* drop the claim that edge findings were reported to Planbook ([#24](https://github.com/bryantclark/planbook-cli/issues/24)) ([084ea80](https://github.com/bryantclark/planbook-cli/commit/084ea80f8cead826ea789b215bdf51f53fac7bbb))
+
 ## [0.3.1](https://github.com/bryantclark/planbook-cli/compare/planbook-cli-v0.3.0...planbook-cli-v0.3.1) (2026-09-04)
 
 
